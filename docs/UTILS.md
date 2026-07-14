@@ -1,0 +1,318 @@
+# 工具类使用指南
+
+scaffold-ai-assistant 提供了 **25 个工具类**，覆盖加密、JSON、Excel、邮件、分页、流处理、脱敏、日志等常用场景，开箱即用，无需重复造轮子。
+
+> **注意**：Excel 相关工具类位于 `zmbdp-common-excel` 模块，使用前需要添加该模块依赖。
+
+## 工具类分类
+
+### 核心工具类（19 个）
+
+#### zmbdp-common-core 模块（15 个）
+
+| 工具类                | 功能说明       | 主要方法                                                              |
+|--------------------|------------|-------------------------------------------------------------------|
+| `AESUtil`          | AES 加密/解密  | `encrypt()`, `decrypt()`                                          |
+| `BeanCopyUtil`     | Bean 属性拷贝  | `copyProperties()`, `copyListProperties()`                        |
+| `ClientIpUtil`     | 客户端 IP 获取  | `getClientIp()`, `getIpFromRequest()`                             |
+| `DesensitizeUtil`  | 敏感字段脱敏     | `desensitizePhone()`, `desensitizeIdCard()`, `desensitizeEmail()` |
+| `FileUtil`         | 文件操作       | `read()`, `write()`, `delete()`                                   |
+| `JsonUtil`         | JSON 处理    | `toJson()`, `parseObject()`, `parseArray()`                       |
+| `LogExceptionUtil` | 日志异常处理     | `getStackTrace()`, `formatException()`                            |
+| `MailUtil`         | 邮件发送       | `sendText()`, `sendHtml()`                                        |
+| `PageUtil`         | 分页处理       | `startPage()`, `getPage()`                                        |
+| `ServletUtil`      | Servlet 工具 | `getRequest()`, `getResponse()`, `getParameter()`                 |
+| `StreamUtil`       | 流处理        | `toInputStream()`, `toByteArray()`                                |
+| `StringUtil`       | 字符串处理      | `isEmpty()`, `isBlank()`, `trim()`                                |
+| `ThreadUtil`       | 线程工具       | `sleep()`, `waitFor()`                                            |
+| `TimestampUtil`    | 时间戳处理      | `getCurrentTimestamp()`, `format()`                               |
+| `TreeUtil`         | 树形结构处理     | `build()`, `toList()`, `findFirst()`, `getSubTree()`              |
+| `ValidatorUtil`    | 数据校验       | `validate()`, `validateObject()`                                  |
+| `VerifyUtil`       | 格式验证       | `checkPhone()`, `checkEmail()`, `checkIdCard()`                   |
+
+#### 其他模块（4 个）
+
+| 工具类 | 模块 | 功能说明 |
+|--------|------|---------|
+| `ExcelUtil` | zmbdp-common-excel | Excel 导入/导出工具 |
+| `CacheUtil` | zmbdp-common-cache | 三级缓存工具（布隆过滤器 + Caffeine + Redis） |
+| `JwtUtil` | zmbdp-common-security | JWT Token 创建、解析、信息提取 |
+| `SecurityUtil` | zmbdp-common-security | Token 提取和处理 |
+
+### Excel 工具类（zmbdp-common-excel 模块）
+
+| 工具类 | 功能说明 |
+|--------|---------|
+| `ExcelUtil` | Excel 导入/导出工具类 | `inputExcel()`, `outputExcel()`, `exportTemplate()` |
+| `CellMergeStrategy` | 单元格合并策略 |
+| `DefaultExcelListener` | 默认 Excel 监听器（用于导入） |
+| `DefaultExcelResult` | 默认 Excel 结果处理 |
+| `ExcelBigNumberConverter` | Excel 大数字转换器 |
+| `ExcelListener` | Excel 监听器接口 |
+| `ExcelResult` | Excel 结果接口 |
+
+## 快速索引
+
+### 按功能分类
+
+#### 数据处理
+- **Bean 拷贝**：`BeanCopyUtil` - DTO/Entity/VO 转换
+- **JSON 处理**：`JsonUtil` - JSON 序列化/反序列化
+- **流处理**：`StreamUtil` - 流转换和处理
+- **树形结构**：`TreeUtil` - 树形结构构建、遍历、查找、过滤、排序
+- **敏感字段脱敏**：`DesensitizeUtil` - 手机号、身份证、邮箱、银行卡等脱敏
+
+#### 文件操作
+- **文件操作**：`FileUtil` - 文件读写、删除
+- **Excel 处理**：`ExcelUtil` + Excel 工具类（zmbdp-common-excel 模块）- Excel 导入导出
+
+#### 字符串与验证
+- **字符串处理**：`StringUtil` - 字符串工具方法
+- **格式验证**：`VerifyUtil` - 手机号、邮箱、身份证等格式验证
+- **数据校验**：`ValidatorUtil` - 对象数据校验
+
+#### 加密与安全
+- **AES 加密**：`AESUtil` - AES 加密/解密
+- **JWT 处理**：`JwtUtil` - JWT Token 创建和解析
+- **安全工具**：`SecurityUtil` - Token 提取和处理
+
+#### Web 相关
+- **Servlet 工具**：`ServletUtil` - 获取请求、响应等
+- **分页处理**：`PageUtil` - 分页参数处理
+- **客户端 IP 获取**：`ClientIpUtil` - 获取真实客户端 IP（支持代理、负载均衡）
+
+#### 其他工具
+- **邮件发送**：`MailUtil` - 邮件发送
+- **线程工具**：`ThreadUtil` - 线程等待、休眠
+- **时间戳**：`TimestampUtil` - 时间戳处理
+- **缓存工具**：`CacheUtil` - 三级缓存操作
+- **日志异常处理**：`LogExceptionUtil` - 异常堆栈格式化（用于日志记录）
+
+## 使用示例
+
+### 敏感字段脱敏
+
+```java
+// 手机号脱敏（保留前3位和后4位）
+String phone = "13800138000";
+String masked = DesensitizeUtil.desensitizePhone(phone);
+// 输出: 138****8000
+
+// 身份证号脱敏（保留前6位和后4位）
+String idCard = "110101199001011234";
+String masked = DesensitizeUtil.desensitizeIdCard(idCard);
+// 输出: 110101********1234
+
+// 邮箱脱敏（保留@前3位和@后全部）
+String email = "user@example.com";
+String masked = DesensitizeUtil.desensitizeEmail(email);
+// 输出: use***@example.com
+
+// 银行卡号脱敏（保留前4位和后4位）
+String bankCard = "6222021234567890123";
+String masked = DesensitizeUtil.desensitizeBankCard(bankCard);
+// 输出: 6222************0123
+
+// 密码脱敏（全部替换为*）
+String password = "myPassword123";
+String masked = DesensitizeUtil.desensitizePassword(password);
+// 输出: *************
+```
+
+### 日志异常处理
+
+```java
+try {
+    // 业务代码
+} catch (Exception e) {
+    // 获取完整异常堆栈（格式化为字符串）
+    String stackTrace = LogExceptionUtil.getStackTrace(e);
+    
+    // 记录到日志或数据库
+    log.error("操作失败: {}", stackTrace);
+}
+```
+
+### 客户端 IP 获取
+
+```java
+// 从 HttpServletRequest 获取真实客户端 IP
+// 自动处理代理、负载均衡等场景（X-Forwarded-For、X-Real-IP 等）
+HttpServletRequest request = ServletUtil.getRequest();
+String clientIp = ClientIpUtil.getClientIp(request);
+```
+
+### Bean 拷贝
+
+```java
+// 单个对象拷贝
+UserEntity entity = userService.findById(1L);
+UserDTO dto = BeanCopyUtil.copyProperties(entity, UserDTO::new);
+
+// List 集合拷贝
+List<UserEntity> entityList = userService.findAll();
+List<UserDTO> dtoList = BeanCopyUtil.copyListProperties(entityList, UserDTO::new);
+```
+
+### JSON 处理
+
+```java
+// 对象转 JSON
+String json = JsonUtil.toJson(user);
+
+// JSON 转对象
+User user = JsonUtil.parseObject(json, User.class);
+
+// JSON 转 List
+List<User> users = JsonUtil.parseArray(json, User.class);
+```
+
+### Excel 导入导出
+
+```java
+// 导出 Excel 到 HTTP 响应
+List<User> users = userService.findAll();
+ExcelUtil.outputExcel(users, "用户列表", User.class, response);
+
+// 导出 Excel（支持单元格合并）
+ExcelUtil.outputExcel(users, "用户列表", User.class, true, response);
+
+// 导入 Excel（同步，小数据量）
+List<User> users = ExcelUtil.inputExcel(inputStream, User.class);
+
+// 导入 Excel（带校验）
+ExcelResult<User> result = ExcelUtil.inputExcel(inputStream, User.class, true);
+List<User> successList = result.getList();
+List<String> errorList = result.getErrorList();
+```
+
+### 格式验证
+
+```java
+// 验证手机号
+boolean isValid = VerifyUtil.checkPhone("13800138000");
+
+// 验证邮箱
+boolean isValid = VerifyUtil.checkEmail("user@example.com");
+
+// 验证身份证
+boolean isValid = VerifyUtil.checkIdCard("110101199001011234");
+```
+
+### JWT 处理
+
+```java
+// 创建 Token
+Map<String, Object> claims = new HashMap<>();
+claims.put("user_id", "123");
+String token = JwtUtil.createToken(claims, secretKey);
+
+// 解析 Token
+Claims parsedClaims = JwtUtil.parseToken(token, secretKey);
+String userId = JwtUtil.getUserId(token, secretKey);
+```
+
+### 三级缓存
+
+```java
+// 查询（自动处理三级缓存）
+String key = "user:123";
+User user = CacheUtil.getL2Cache(
+    redisService, 
+    bloomFilterService, 
+    key, 
+    User.class, 
+    caffeineCache
+);
+
+// 写入（自动写入三级缓存）
+CacheUtil.setL2Cache(
+    redisService, 
+    bloomFilterService, 
+    key, 
+    user, 
+    caffeineCache, 
+    300L, 
+    TimeUnit.SECONDS
+);
+```
+
+### 邮件发送
+
+```java
+// 发送文本邮件
+MailUtil.sendText("recipient@example.com", "主题", "内容");
+
+// 发送 HTML 邮件
+MailUtil.sendHtml("recipient@example.com", "主题", "<h1>HTML 内容</h1>");
+```
+
+### AES 加密
+
+```java
+// 加密
+String encrypted = AESUtil.encrypt("原始数据", "密钥");
+
+// 解密
+String decrypted = AESUtil.decrypt(encrypted, "密钥");
+```
+
+### 树形结构处理
+
+```java
+// 定义树节点类
+@Data
+public class MenuNode {
+    private Long id;
+    private Long parentId;
+    private String name;
+    private List<MenuNode> children;
+}
+
+// 构建树形结构
+List<MenuNode> flatList = menuService.findAll();
+List<MenuNode> tree = TreeUtil.build(
+    flatList,
+    0L,  // 根节点ID
+    MenuNode::getId,
+    MenuNode::getParentId,
+    MenuNode::getChildren,
+    MenuNode::setChildren
+);
+
+// 获取指定层级的子树
+List<MenuNode> subTree = TreeUtil.getSubTree(tree, MenuNode::getChildren, MenuNode::setChildren, 2);
+
+// 查找节点
+MenuNode node = TreeUtil.findFirst(tree, MenuNode::getChildren, n -> n.getId().equals(10L));
+
+// 过滤树
+List<MenuNode> filtered = TreeUtil.filter(tree, MenuNode::getChildren, MenuNode::setChildren, MenuNode::getEnabled);
+
+// 排序树
+List<MenuNode> sorted = TreeUtil.sort(tree, MenuNode::getChildren, MenuNode::setChildren, Comparator.comparing(MenuNode::getSort));
+```
+
+## 注意事项
+
+1. **工具类都是静态方法**：所有工具类都使用静态方法，无需实例化
+2. **空值处理**：大部分工具类都做了空值处理，不会抛出 `NullPointerException`
+3. **异常处理**：工具类内部已处理常见异常，使用更安全
+4. **线程安全**：所有工具类都是线程安全的，可以在多线程环境下使用
+
+## 扩展建议
+
+如果需要新增工具类：
+
+1. **核心工具类**：在 `zmbdp-common-core/src/main/java/com/zmbdp/common/core/utils/` 下创建
+2. **功能模块化工具类**：如果功能较复杂或需要独立依赖，可创建独立模块（参考 `zmbdp-common-excel`）
+3. 使用 `@NoArgsConstructor(access = AccessLevel.PRIVATE)` 防止实例化
+4. 所有方法使用 `public static` 修饰
+5. 添加完整的 Javadoc 注释
+6. 更新本文档的工具类列表
+
+## 相关文档
+
+- [项目结构与模块职责](PROJECT_STRUCTURE.md)
+- [三级缓存架构](CACHE_ARCHITECTURE.md) - `CacheUtil` 使用说明
+- [分布式幂等性](IDEMPOTENT.md) - 幂等性相关工具

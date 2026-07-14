@@ -1,6 +1,6 @@
 <div align="center">
 
-# FrameworkJava
+# scaffold-ai-assistant
 
 ### 企业级 Spring Boot 微服务工程脚手架
 
@@ -9,8 +9,8 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.3-green.svg)](https://spring.io/projects/spring-boot)
 [![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-2023.0.3-blue.svg)](https://spring.io/projects/spring-cloud)
 [![Spring Cloud Alibaba](https://img.shields.io/badge/Spring%20Cloud%20Alibaba-2023.0.1.2-blueviolet.svg)](https://github.com/alibaba/spring-cloud-alibaba)
-[![License](https://img.shields.io/github/license/zmbdp/frameworkjava)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/zmbdp/frameworkjava)](https://github.com/zmbdp/frameworkjava/stargazers)
+[![License](https://img.shields.io/github/license/zmbdp/scaffold-ai-assistant)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/zmbdp/scaffold-ai-assistant)](https://github.com/zmbdp/scaffold-ai-assistant/stargazers)
 
 **这是一个在真实项目中反复使用和调整过的 Spring Boot 微服务工程脚手架，  
 主要用于解决新项目启动阶段工程结构混乱、基础能力重复建设的问题。**
@@ -28,7 +28,7 @@
 
 ## 📖 项目简介
 
-**FrameworkJava** 是我在多个项目中反复使用的一套基于 **Spring Boot 3.x + Spring Cloud 2023** 的 **微服务工程脚手架（Scaffold）**。
+**scaffold-ai-assistant** 是我在多个项目中反复使用的一套基于 **Spring Boot 3.x + Spring Cloud 2023** 的 **微服务工程脚手架（Scaffold）**。
 
 这个项目一开始只是我自己用来起新服务的一套工程骨架。
 
@@ -50,7 +50,7 @@
 
 ## 🧱 能力边界说明（请务必阅读）
 
-FrameworkJava 本身并不是一个可以直接上线使用的后台系统，这一点在一开始用的时候就刻意控制住了。
+scaffold-ai-assistant 本身并不是一个可以直接上线使用的后台系统，这一点在一开始用的时候就刻意控制住了。
 
 它更多是用来当一个工程起点，哪些业务要做、做到什么程度，还是应该由具体项目自己决定。
 
@@ -130,7 +130,7 @@ API / Service 分离，公共能力集中到基础模块，
 
 ### 🛠️ 丰富的工具包生态
 
-FrameworkJava 集成了 **20 多个常用工具类**，涵盖复杂泛型BeanCopy、加密、JSON、Excel、邮件、分页、流处理等功能。  
+scaffold-ai-assistant 集成了 **20 多个常用工具类**，涵盖复杂泛型BeanCopy、加密、JSON、Excel、邮件、分页、流处理等功能。  
 同时提供 **三套策略模式实现**，支持登录流程、验证码发送、账号校验等场景。
 
 基础业务能力也已工程化实现，包括用户管理、配置管理、文件处理、消息处理等模块。  
@@ -140,7 +140,7 @@ FrameworkJava 集成了 **20 多个常用工具类**，涵盖复杂泛型BeanCop
 ## 🧭 项目结构概览
 
 ```
-frameworkjava
+scaffold-ai-assistant
 ├── zmbdp-gateway        # 网关服务（工程必选）
 ├── zmbdp-common         # 公共基础能力模块（工程必选）
 ├── zmbdp-admin          # 业务示例：管理端参考实现
@@ -171,15 +171,15 @@ frameworkjava
 
 #### 1. 克隆项目
 ```bash
-git clone https://github.com/zmbdp/frameworkjava.git
-cd frameworkjava
+git clone https://github.com/zmbdp/scaffold-ai-assistant.git
+cd scaffold-ai-assistant
 ```
 
 #### 2. 启动中间件（一键部署）
 
 ```bash
 cd deploy/dev/app
-docker compose -p frameworkjava -f docker-compose-mid.yml up -d
+docker compose -p scaffold-ai-assistant -f docker-compose-mid.yml up -d
 ```
 
 **等待 30-60 秒后，访问以下地址验证：**
@@ -293,7 +293,7 @@ SDK 开发文档位于项目 `javapro/javadoc` 目录下，基于 JavaDoc 自动
 - 👤 **作者**: 稚名不带撇
 - 📧 **邮箱**: [JavaFH@163.com](mailto:JavaFH@163.com)
 - 🐙 **GitHub**: [@zmbdp](https://github.com/zmbdp)
-- 📚 **项目地址**: [https://github.com/zmbdp/frameworkjava](https://github.com/zmbdp/frameworkjava)
+- 📚 **项目地址**: [https://github.com/zmbdp/scaffold-ai-assistant](https://github.com/zmbdp/scaffold-ai-assistant)
 
 ---
 
@@ -309,41 +309,41 @@ SDK 开发文档位于项目 `javapro/javadoc` 目录下，基于 JavaDoc 自动
   <tr>
     <td align="center">
       <b>功能概述</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E5%8A%9F%E8%83%BD%E6%A6%82%E8%BF%B0.PNG" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E5%8A%9F%E8%83%BD%E6%A6%82%E8%BF%B0.PNG" style="max-width: 100%; height: auto;">
     </td>
     <td align="center">
       <b>系统架构</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E9%A1%B5%E9%9D%A2.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E9%A1%B5%E9%9D%A2.png" style="max-width: 100%; height: auto;">
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>使用手册</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
     </td>
     <td align="center">
       <b>API文档</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/API%E6%96%87%E6%A1%A3%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/API%E6%96%87%E6%A1%A3%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>SDK文档</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/SDK%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/SDK%E6%88%AA%E5%9B%BE.png" style="max-width: 100%; height: auto;">
     </td>
     <td align="center">
       <b>管理端登录页</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E7%99%BB%E5%BD%95%E9%A1%B5.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E7%99%BB%E5%BD%95%E9%A1%B5.png" style="max-width: 100%; height: auto;">
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>管理端管理页</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E7%94%A8%E6%88%B7%E7%AE%A1%E7%90%86%E9%A1%B5.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E7%94%A8%E6%88%B7%E7%AE%A1%E7%90%86%E9%A1%B5.png" style="max-width: 100%; height: auto;">
     </td>
     <td align="center">
       <b>字典管理页</b><br>
-      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/FrameworkJava/%E5%AD%97%E5%85%B8%E8%AE%BE%E7%BD%AE%E9%A1%B5.png" style="max-width: 100%; height: auto;">
+      <img src="https://framework-java-web.oss-cn-shanghai.aliyuncs.com/scaffold-ai-assistant/%E5%AD%97%E5%85%B8%E8%AE%BE%E7%BD%AE%E9%A1%B5.png" style="max-width: 100%; height: auto;">
     </td>
   </tr>
 </table>
@@ -351,6 +351,6 @@ SDK 开发文档位于项目 `javapro/javadoc` 目录下，基于 JavaDoc 自动
 <div align="center">
 
 如果这个项目对你有帮助，请给一个 ⭐ Star  
-**FrameworkJava只负责打基础，真正的业务复杂度，还是应该由你自己的项目来承载。**
+**scaffold-ai-assistant只负责打基础，真正的业务复杂度，还是应该由你自己的项目来承载。**
 
 </div>

@@ -1,0 +1,25 @@
+# scaffold-ai-assistant 文档中心
+
+本文档用于补充 README 中未展开的工程细节。
+
+## 基础说明
+- [项目结构与模块职责](PROJECT_STRUCTURE.md)
+- [工具类使用指南](UTILS.md)
+- [配置中心与多环境管理](CONFIGURATION.md)
+
+## 核心能力
+- [三级缓存架构](CACHE_ARCHITECTURE.md)
+- [分布式幂等性](IDEMPOTENT.md)
+- [频控 / 防刷](RATELIMIT.md)
+- [数据权限控制](DATAPERMISSION.md)
+- [操作日志](LOG.md)
+- [链路追踪](TRACING.md)
+- [服务监控与告警](MONITORING.md)
+- [分布式定时任务（XXL-JOB）](XXLJOB.md)
+
+## 开发指南
+- [新增业务模块](ADD_NEW_MODULE.md)
+- [性能与并发设计](PERFORMANCE.md)
+
+## 常见问题
+- [FAQ](FAQ.md)
