@@ -4575,6 +4575,22 @@ CREATE TABLE `sys_argument`
 INSERT INTO sys_argument (name, config_key, value)
 VALUES ('热门城市', 'sys_hot_city', '35,108,234,236,289,122');
 
+-- AI 运行时配置参数（复用 sys_argument 表，chat-service 通过 ArgumentServiceApi 读取）
+-- 注意：api-key、模型名称、milvus连接、知识库路径等基础设施配置统一在Nacos管理，不存此表
+INSERT INTO `sys_argument`(`name`, `config_key`, `value`, `remark`) VALUES
+('AI温度参数', 'ai.temperature', '0.7', '温度参数（运行时可调）'),
+('AI最大Token数', 'ai.max_tokens', '4096', '最大Token数（运行时可调）'),
+('RAG检索默认数量', 'ai.top_k', '5', 'RAG检索默认topK（运行时可调）'),
+('是否启用RAG检索', 'ai.enable_rag', 'true', '是否启用RAG检索（运行时可调）'),
+('是否启用Agent工具', 'ai.enable_tools', 'true', '是否启用Agent工具调用（运行时可调）'),
+('ReadFileTool启用状态', 'ai.tool.readFile.enabled', 'true', '读取指定文件内容'),
+('SearchCodeTool启用状态', 'ai.tool.searchCode.enabled', 'true', '搜索代码中的类/方法'),
+('ListDirTool启用状态', 'ai.tool.listDir.enabled', 'true', '列出目录结构'),
+('SearchInFileTool启用状态', 'ai.tool.searchInFile.enabled', 'true', '在文件中搜索关键字'),
+('NacosConfigTool启用状态', 'ai.tool.nacosConfig.enabled', 'true', '查询Nacos配置项'),
+('CompareConfigTool启用状态', 'ai.tool.compareConfig.enabled', 'true', '对比不同环境配置'),
+('PreDeployCheckTool启用状态', 'ai.tool.preDeployCheck.enabled', 'true', '部署前检查清单');
+
 DROP TABLE IF EXISTS `sys_dictionary_type`;
 CREATE TABLE `sys_dictionary_type`
 (
@@ -4644,4 +4660,173 @@ INSERT INTO sys_user (nick_name, phone_number, password, `identity`, remark, sta
 VALUES ('稚名不带撇', '62a9bfed8dc2cc6e2c83eb628bd10d3e',
         '78199ef620f359d5a33b91d172d3acfeb13591719c53d3cfa14ade0614fcb1a6',
         'super_admin', NULL, 'enable');
-commit;
+
+-- =====================================
+-- AI 知识源表（chat-service）
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_knowledge_source` (
+    `id` BIGINT PRIMARY KEY COMMENT '知识源ID（雪花算法）',
+    `name` VARCHAR(100) NOT NULL COMMENT '知识源名称',
+    `path` VARCHAR(500) NOT NULL COMMENT '文件路径（知识源根目录绝对路径）',
+    `type` VARCHAR(20) NOT NULL COMMENT '类型（doc/javadoc/config/code）',
+    `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用（1=启用，0=禁用）',
+    `chunk_size` INT DEFAULT 500 COMMENT '分块大小（字符数）',
+    `chunk_overlap` INT DEFAULT 50 COMMENT '分块重叠大小（字符数）',
+    `last_sync_date` BIGINT COMMENT '最后同步日期（格式：20260712）',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `update_date` BIGINT NOT NULL COMMENT '更新日期（格式：20260712）',
+    UNIQUE INDEX `uk_name` (`name`),
+    INDEX `idx_path` (`path`),
+    INDEX `idx_type` (`type`),
+    INDEX `idx_enabled` (`enabled`),
+    INDEX `idx_last_sync_date` (`last_sync_date`),
+    INDEX `idx_create_date` (`create_date`),
+    INDEX `idx_update_date` (`update_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI知识源表';
+
+-- =====================================
+-- AI 文档表（chat-service）
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_document` (
+    `id` BIGINT PRIMARY KEY COMMENT '文档ID（雪花算法）',
+    `knowledge_source_id` BIGINT COMMENT '所属知识源ID',
+    `title` VARCHAR(200) NOT NULL COMMENT '文档标题',
+    `path` VARCHAR(500) NOT NULL COMMENT '文件路径',
+    `content` LONGTEXT COMMENT '完整文档内容',
+    `type` VARCHAR(20) NOT NULL COMMENT '类型（doc/javadoc/config/code）',
+    `module` VARCHAR(100) COMMENT '所属模块',
+    `category` VARCHAR(100) COMMENT '功能类别',
+    `status` VARCHAR(20) DEFAULT 'ACTIVE' COMMENT '状态（ACTIVE/DELETED）',
+    `version` INT DEFAULT 1 COMMENT '版本号',
+    `hash` VARCHAR(64) COMMENT '文件内容哈希（SHA-256）',
+    `chunk_count` INT DEFAULT 0 COMMENT '分块数量',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `update_date` BIGINT NOT NULL COMMENT '更新日期（格式：20260712）',
+    UNIQUE INDEX `uk_path` (`path`),
+    INDEX `idx_knowledge_source_id` (`knowledge_source_id`),
+    INDEX `idx_type` (`type`),
+    INDEX `idx_module` (`module`),
+    INDEX `idx_category` (`category`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_create_date` (`create_date`),
+    INDEX `idx_update_date` (`update_date`),
+    CONSTRAINT `fk_sys_ai_document_knowledge_source` FOREIGN KEY (`knowledge_source_id`) REFERENCES `sys_ai_knowledge_source`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI文档表';
+
+-- =====================================
+-- AI 调用链路日志表（chat-service）
+-- 专用于AI调用链路追踪（Prompt/LLM响应/工具调用/Token消耗）
+-- B端管理操作审计（CRUD/同步等）由脚手架 @LogAction 注解 + operation_log 表自动记录，不在本表重复
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_operation_log` (
+    `id` BIGINT PRIMARY KEY COMMENT '日志ID（雪花算法）',
+    `user_id` BIGINT NOT NULL COMMENT '调用用户ID（关联sys_user或app_user表）',
+    `user_from` VARCHAR(10) NOT NULL COMMENT '用户来源（sys/app）',
+    `conversation_id` BIGINT COMMENT '关联对话ID（sys_ai_conversation.id）',
+    `operation_type` VARCHAR(20) NOT NULL COMMENT 'AI操作类型（CHAT/RETRIEVE/EMBEDDING/RERANK）',
+    `model` VARCHAR(50) NOT NULL COMMENT '调用的模型名称（如qwen-max、text-embedding-v1）',
+    `prompt` LONGTEXT COMMENT '完整Prompt（含RAG检索到的文档上下文）',
+    `response` LONGTEXT COMMENT 'LLM完整响应内容',
+    `tool_calls` TEXT COMMENT '工具调用链路（JSON数组，如[{"name":"ReadFileTool","success":true,"duration":45,"summary":"..."}]）',
+    `prompt_tokens` INT COMMENT 'Prompt Token数',
+    `completion_tokens` INT COMMENT '响应Token数',
+    `total_tokens` INT COMMENT '总Token数',
+    `response_time` INT COMMENT '响应耗时（毫秒）',
+    `status` VARCHAR(20) DEFAULT 'SUCCESS' COMMENT '调用状态（SUCCESS/FAILED/TIMEOUT）',
+    `error_msg` VARCHAR(500) COMMENT '失败原因（status=FAILED/TIMEOUT时记录）',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `create_time` DATETIME NOT NULL COMMENT '创建时间（精确到秒）',
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_conversation_id` (`conversation_id`),
+    INDEX `idx_operation_type` (`operation_type`),
+    INDEX `idx_model` (`model`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_create_date` (`create_date`),
+    INDEX `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI调用链路日志表';
+
+-- =====================================
+-- AI 对话记录表（chat-service）
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_conversation` (
+    `id` BIGINT PRIMARY KEY COMMENT '对话ID（雪花算法）',
+    `session_id` VARCHAR(50) NOT NULL COMMENT '会话ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `user_from` VARCHAR(10) NOT NULL COMMENT '用户来源（sys/app）',
+    `question` TEXT NOT NULL COMMENT '用户提问内容',
+    `answer` LONGTEXT COMMENT 'AI回答内容',
+    `images` TEXT COMMENT '图片URL列表（JSON数组）',
+    `model` VARCHAR(50) NOT NULL COMMENT '使用的模型名称',
+    `temperature` DECIMAL(3,2) COMMENT '温度参数',
+    `top_k` INT DEFAULT 5 COMMENT 'RAG检索数量',
+    `response_time` INT COMMENT '响应时间（毫秒）',
+    `token_usage` INT COMMENT 'Token消耗数量',
+    `tool_usage` TEXT COMMENT '工具调用信息（JSON格式）',
+    `sources` TEXT COMMENT '引用来源（JSON格式）',
+    `status` VARCHAR(20) DEFAULT 'SUCCESS' COMMENT '对话状态（SUCCESS/FAILED/TIMEOUT）',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否软删除（0=未删除，1=已删除）',
+    `error_msg` VARCHAR(500) COMMENT '失败原因',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `create_time` DATETIME NOT NULL COMMENT '创建时间（精确到秒）',
+    INDEX `idx_session_id` (`session_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_user_from` (`user_from`),
+    INDEX `idx_model` (`model`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_is_deleted` (`is_deleted`),
+    INDEX `idx_create_date` (`create_date`),
+    INDEX `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI对话记录表';
+
+-- =====================================
+-- AI 权限表（chat-service）
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_permission` (
+    `id` BIGINT PRIMARY KEY COMMENT '权限ID（雪花算法）',
+    `user_id` BIGINT COMMENT '用户ID（关联sys_user或app_user表）',
+    `user_from` VARCHAR(10) NOT NULL COMMENT '用户来源（sys/app）',
+    `model_code` VARCHAR(50) NOT NULL COMMENT '模型编码（如qwen-plus、gpt-4o）',
+    `enabled` TINYINT(1) DEFAULT 1 COMMENT '是否启用',
+    `quota` INT DEFAULT -1 COMMENT '调用配额（-1表示无限制）',
+    `used_quota` INT DEFAULT 0 COMMENT '已使用配额',
+    `expire_date` BIGINT COMMENT '过期日期（格式：20260712，为空表示永久）',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `update_date` BIGINT NOT NULL COMMENT '更新日期（格式：20260712）',
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_user_from` (`user_from`),
+    INDEX `idx_model_code` (`model_code`),
+    INDEX `idx_enabled` (`enabled`),
+    INDEX `idx_create_date` (`create_date`),
+    INDEX `idx_update_date` (`update_date`),
+    INDEX `idx_expire_date` (`expire_date`),
+    UNIQUE INDEX `uk_user_model` (`user_id`, `user_from`, `model_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI权限表';
+
+-- =====================================
+-- AI 配置和工具启用状态已复用 sys_argument 表（见文件开头 sys_argument 预置数据）
+-- 原 sys_ai_config 和 sys_ai_tool_config 表已删除，避免与脚手架通用参数表重复
+-- chat-service 通过 ArgumentServiceApi（Feign）读取 ai.* 配置项
+-- =====================================
+
+-- =====================================
+-- AI 回答反馈表（chat-service）
+-- =====================================
+CREATE TABLE IF NOT EXISTS `sys_ai_feedback` (
+    `id` BIGINT PRIMARY KEY COMMENT '反馈ID（雪花算法）',
+    `conversation_id` BIGINT NOT NULL COMMENT '对话记录ID（关联sys_ai_conversation.id）',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID（关联sys_user或app_user表）',
+    `user_from` VARCHAR(10) NOT NULL COMMENT '用户来源（sys/app）',
+    `feedback_type` VARCHAR(10) NOT NULL COMMENT '反馈类型（LIKE/DISLIKE）',
+    `dislike_reason` VARCHAR(20) COMMENT '点踩原因（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER，仅DISLIKE时有值）',
+    `comment` VARCHAR(500) COMMENT '文字评论（可选）',
+    `create_date` BIGINT NOT NULL COMMENT '创建日期（格式：20260712）',
+    `create_time` DATETIME NOT NULL COMMENT '创建时间（精确到秒）',
+    UNIQUE KEY `uk_conversation_user` (`conversation_id`, `user_id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_feedback_type` (`feedback_type`),
+    KEY `idx_dislike_reason` (`dislike_reason`),
+    KEY `idx_create_date` (`create_date`),
+    KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI回答反馈表';
+
+COMMIT;

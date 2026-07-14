@@ -73,6 +73,16 @@ scrape_configs:
           application: 'file'
           environment: 'dev'
 
+  # AI 服务监控（本地开发环境通过 SSH 反向隧道）
+  - job_name: 'zmbdp-chat'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:18084' ]
+        labels:
+          service: 'zmbdp-chat'
+          application: 'chat'
+          environment: 'dev'
+
   # 模板服务监控（本地开发环境通过 SSH 反向隧道）
   - job_name: 'zmbdp-mstemplate'
     metrics_path: '/actuator/prometheus'

@@ -9,8 +9,11 @@
 | 文档类型 | 分块方式 | 块大小 | 重叠比例 |
 |---------|---------|--------|---------|
 | **Markdown文档** | 按章节分块（基于`#`、`##`） | 500-1000字符 | 10-15% |
+| **Java源码** | 按类/方法分块（基于AST解析） | 500-800字符 | 5% |
 | **JavaDoc HTML** | 按类/方法分块 | 300-500字符 | 5% |
 | **配置文件** | 按配置节分块（基于YAML层级） | 200-300字符 | 5% |
+
+> **Java源码分块说明**：脚手架项目主体是 Java 源码（.java 文件），必须作为独立的分块类型。Java 源码分块后存入 Milvus，用户提问"某个功能在哪里实现"时，RAG 可检索到对应的类/方法分块，配合 05-Agent工具设计.md 的 SearchCodeTool/ReadFileTool 提供完整的源码问答能力。
 
 ### 6.1.1 分块算法详细说明
 
@@ -28,6 +31,27 @@
 6. 为每个分块分配 chunkIndex（从0开始递增）
 7. 记录元数据：source_type、source_path、module、category、title
 ```
+
+**Java 源码分块算法**：
+```
+1. 读取 .java 文件内容
+2. 使用 JavaParser（或正则）解析类结构
+3. 识别类级注释（JavaDoc）、类声明、字段、方法
+4. 分块策略：
+   ├─ 类级注释 + 类声明 + import 列表 → 作为一个分块（类概述）
+   ├─ 每个方法（含方法注释、方法签名、方法体）→ 作为一个独立分块
+   └─ 若方法体过长（> chunkSize），按方法内的逻辑块二次切分（基于空行或注释分隔）
+5. 为每个分块分配 chunkIndex（从0开始递增）
+6. 记录元数据：
+   ├─ source_type: code
+   ├─ source_path: 文件相对路径（如 zmbdp-common/zmbdp-common-core/src/.../JsonUtil.java）
+   ├─ module: 所属模块（如 common-core）
+   ├─ className: 类名（如 JsonUtil）
+   ├─ methodName: 方法名（类概述分块为 null）
+   └─ title: "JsonUtil.toJson" 或 "JsonUtil（类概述）"
+```
+
+> **为什么用 JavaParser 而非正则**：JavaParser 能准确解析 Java 语法结构（类、方法、注释），避免正则匹配嵌套大括号的歧义。若需简化实现，可降级为正则匹配 `public/private/protected` 方法签名。
 
 **JavaDoc HTML 分块算法**：
 ```
@@ -58,8 +82,9 @@
 | 分块重叠 | `chunk_overlap` | 50 | 0-200 | 相邻分块的重叠字符数（需小于chunkSize） |
 
 **参数选择建议**：
-- **文档类**：chunkSize=800, chunkOverlap=80（保留完整段落上下文）
-- **代码类**：chunkSize=500, chunkOverlap=50（按方法粒度切分）
+- **Markdown文档类**：chunkSize=800, chunkOverlap=80（保留完整段落上下文）
+- **Java源码类**：chunkSize=600, chunkOverlap=30（按方法粒度切分，保留方法注释）
+- **JavaDoc类**：chunkSize=400, chunkOverlap=20（按类/方法粒度切分）
 - **配置类**：chunkSize=300, chunkOverlap=30（按配置节切分）
 
 ---
@@ -120,18 +145,26 @@ MySQL document表                    Milvus scaffold_knowledge集合
                                                     ↓
                                          Reranking 重排序（按相关性二次排序）
                                                     ↓
-                                         截取 topK 个最相关分块
+                                         截取 topK 个最相关分块（保留所有分块，不去重）
                                                     ↓
-                                         根据document_id去重，得到文档ID列表
+                                         按document_id分组（用于展示引用来源，同文档的多个分块都保留）
                                                     ↓
-                                         （可选）去MySQL获取完整文档内容
-                                                    ↓
-                                         拼接上下文 → LLM生成回答
-                                                    ↓
-                                         返回回答（包含引用来源，指向原始文档）
+                                         返回 List<DocumentVO>（含 content、title、module、score、source_path）
 
 可选：基于元数据过滤（如指定模块、类型）   可选：按相似度排序
 ```
+
+> **向量检索结果不缓存**：每次都实时查询 Milvus + Reranking，保证检索结果基于最新的向量库数据。业界主流 RAG 框架（LangChain `CacheBackedEmbeddings`、GPTCache 等）缓存的是 embedding 结果或 LLM 响应，而非向量检索结果（详见 07-项目架构设计.md 7.12.1 节"缓存范围决策"）。
+
+> **去重说明**：检索结果**不做去重**。如果同一个文档的多个分块都相关，保留所有分块以提供更完整的上下文。按 document_id 分组仅用于前端展示引用来源（同文档的分块合并为一个引用条目），不影响传给 LLM 的上下文内容。
+>
+> **"去MySQL获取完整文档内容"已移除**：C端对话场景不需要获取完整文档，分块内容已足够。B端召回测试（/knowledge/retrieve-test）如需查看完整文档，单独调用文档详情接口。
+
+> **职责划分说明**（与 03-C端功能设计.md 3.0 节一致）：
+> - **RAG 检索**（Embedding 生成 → Milvus 相似性检索 → Reranking 重排序 → 截取 topK）在 **`chat-service`** 完成
+> - `portal-service` 通过 Feign 调用 `ChatApi.retrieve()` 获取检索结果（`List<DocumentVO>`），**不直接访问 Milvus**
+> - **Prompt 拼接**在 `portal-service` 完成（详见 6.8 节）
+> - **LLM 生成回答**在 `chat-service` 完成（`portal-service` 通过 WebClient 调用 SSE 端点，透传流数据给前端）
 
 ### 6.3.1 Reranking 重排序策略
 
@@ -197,6 +230,10 @@ source_type == "doc" and module == "common-cache"
 ```
 手动触发/定时任务
     ↓
+获取分布式锁（Redis分布式锁，key: knowledge:sync:{knowledgeSourceId}）
+    ├─ 获取成功 → 继续执行
+    └─ 获取失败 → 说明已有同步任务在执行，直接返回（避免并发同步冲突）
+    ↓
 遍历知识源目录，收集当前所有文件路径
     ↓
 从MySQL查询已有文档列表（按知识源分组）
@@ -212,7 +249,8 @@ source_type == "doc" and module == "common-cache"
     ├─ 插入MySQL文档表，获取文档ID
     ├─ 文档分块处理
     ├─ 对每个分块Embedding生成向量
-    └─ 写入Milvus（包含document_id和chunk_index）
+    ├─ 写入Milvus（包含document_id和chunk_index）
+    └─ 将document_id加入布隆过滤器（bloomFilterService.put）
     ↓
 处理更新文件：
     ├─ 读取文件内容
@@ -229,7 +267,13 @@ source_type == "doc" and module == "common-cache"
     └─ 更新MySQL文档状态为DELETED（软删除）
     ↓
 更新MySQL中document表的chunk_count字段
+    ↓
+释放分布式锁
 ```
+
+> **向量检索不涉及缓存失效**：向量检索结果不缓存（详见 6.3 节），知识同步完成后向量库已更新为最新数据，下次检索自动获取最新结果。
+
+> **分布式锁说明**：使用 Redis 分布式锁（key: `knowledge:sync:{knowledgeSourceId}`），确保同一知识源的同步任务不会并发执行。锁设置合理过期时间（默认30分钟），防止死锁。多容器部署时，定时任务在所有容器都会触发，但只有获取到锁的容器执行同步。
 
 **增量更新优化**：
 - 使用文件哈希（SHA-256）对比，避免重复处理未修改的文件
@@ -287,7 +331,13 @@ source_type == "doc" and module == "common-cache"
 
 ## 6.8 Prompt 拼接策略
 
-**拼接位置**：在 `portal-service` 的 `PortalChatService` 中完成（不在 chat-service 中）
+**拼接位置**：在 `portal-service` 的 `PortalChatService` 中完成
+
+> **职责划分说明**（与 03-C端功能设计.md 3.0 节一致）：
+> - **RAG 检索**（Embedding 生成 → Milvus 检索 → Reranking）在 `chat-service` 完成
+> - `portal-service` 通过 Feign 调用 `ChatApi.retrieve()` 获取检索结果（`List<DocumentVO>`）
+> - `portal-service` 拿到检索结果后，完成 Prompt 拼接（System Prompt + 文档上下文 + 对话历史 + 用户提问）
+> - 拼接后的完整 Prompt 通过 WebClient 传给 `chat-service` 的 SSE 端点，由 `chat-service` 调用 LLM 生成回答
 
 **Prompt 结构**：
 ```
@@ -304,7 +354,7 @@ source_type == "doc" and module == "common-cache"
 ---文档2: 分布式幂等性.md（模块: common-idempotent）---
 [分块内容3]
 
-[对话历史]（最近5轮，从 Redis 读取）
+[对话历史]（最近5轮，通过 Feign 调用 HistoryApi.getSessionHistory 获取，优先 Redis，降级 MySQL）
 User: 上一个问题
 Assistant: 上一个回答
 
@@ -320,10 +370,14 @@ Assistant: 上一个回答
    ├─ 遍历每个文档分块
    ├─ 格式：---文档{N}: {title}（模块: {module}）---\n{content}
    └─ 限制总长度（默认8000字符，超出则截断低分文档）
-4. 从 ChatMemoryService 获取最近5轮对话历史
+4. 通过 Feign 调用 HistoryApi.getSessionHistory(sessionId, 5) 获取最近5轮对话历史
+   ├─ 优先从 Redis（IChatMemoryService）读取，延迟低
+   └─ Redis 不可用时降级查 MySQL（sys_ai_conversation 表），保证可用性
 5. 拼接完整Prompt：System Prompt + 文档上下文 + 对话历史 + 用户提问
 6. 将完整Prompt传给 chat-service 的 SSE 端点
 ```
+
+> **跨服务说明**：`portal-service` 和 `chat-service` 是独立服务，`IChatMemoryService` 属于 `chat-service`。`portal-service` 无法直接调用 `IChatMemoryService`，必须通过 Feign 调用 `HistoryApi.getSessionHistory()` 跨服务获取对话历史（与 03-C端功能设计.md 3.0.1 节 streamChat 第4步一致）。
 
 **上下文长度限制**：
 - 最大上下文长度：8000字符（约2000 token）
@@ -341,10 +395,18 @@ Assistant: 上一个回答
 
 **热更新场景**：知识文件变更后，无需重启服务即可更新向量库
 
-**实现方式**：
+**实现方式**（v1.0）：
 1. **手动触发**：通过 B端 `/admin/knowledge/sync` 接口手动触发同步
 2. **定时任务**：`KnowledgeSyncScheduler` 定时检查文件变更（默认每小时一次）
-3. **文件监听**（可选）：通过 Java NIO WatchService 监听知识源目录变更
+
+**v2.0 规划**（v1.0 不实现，避免过度设计）：
+3. **文件监听**：通过 Java NIO WatchService 监听知识源目录变更
+
+> **v1.0 不实现文件监听的原因**：
+> - 手动触发 + 定时任务（每小时）已能满足知识更新需求，延迟可接受
+> - 文件监听增加系统复杂度，且多容器部署时所有容器都会触发监听事件，需额外处理去重（否则重复同步）
+> - 文件频繁变更时（如开发环境 git pull），文件监听会触发大量同步任务，影响性能
+> - 作为 v2.0 功能，结合分布式锁 + 延迟批量同步（防抖）再实现更合理
 
 **定时任务配置**：
 ```yaml
@@ -363,7 +425,7 @@ knowledge:
 
 ---
 
-**文档版本**：v1.2  
+**文档版本**：v1.3  
 **创建日期**：2026-07-12  
-**最后更新**：2026-07-13  
+**最后更新**：2026-07-14  
 **适用版本**：Scaffold AI Assistant v1.0

@@ -101,6 +101,23 @@ scrape_configs:
           instance: 'vm2'
           environment: 'prd'
 
+  # AI 服务监控（vm1 + vm2 Docker 容器，部署2副本）
+  - job_name: 'zmbdp-chat'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'scaffold-ai-assistant-chat-prd:18084' ]  # vm1 容器（通过 Docker 网络）
+        labels:
+          service: 'zmbdp-chat'
+          application: 'chat'
+          instance: 'vm1'
+          environment: 'prd'
+      - targets: [ '你的云服务器2内网ip/你的虚拟机2内网ip:18084' ]  # vm2 容器（通过宿主机 IP + 映射端口），请替换 你的云服务器2内网ip/你的虚拟机2内网ip 为实际 IP
+        labels:
+          service: 'zmbdp-chat'
+          application: 'chat'
+          instance: 'vm2'
+          environment: 'prd'
+
   # RabbitMQ 监控（vm1 + vm2 集群，已启用 rabbitmq_prometheus 插件）
   - job_name: 'rabbitmq'
     static_configs:
