@@ -1,0 +1,53 @@
+spring:
+  output:
+    ansi:
+      enabled: ALWAYS
+  application:
+    name: zmbdp-mstemplate-service
+  profiles:
+    active: ${RUN_ENV}
+  cloud:
+    nacos:
+      discovery:
+        username: nacos
+        password: Hf@173503494
+        namespace: scaffold-ai-assistant-${RUN_ENV}
+        server-addr: ${NACOS_ADDR}
+      config:
+        username: nacos
+        password: Hf@173503494
+        namespace: scaffold-ai-assistant-${RUN_ENV}
+        server-addr: ${NACOS_ADDR}
+        file-extension: yaml
+        # 配置共享的配置
+        shared-configs:
+            # 可以这么拿到环境变量的值, 还有下面一种方法也可以
+#          - data-id: share-redis-${RUN_ENV}.yaml
+          - data-id: share-redis-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-caffeine-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-rabbitmq-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-token-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-filter-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-thread-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-mail-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-upload-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-idempotent-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-ratelimit-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-log-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-mysql-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-monitor-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-xxljob-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新

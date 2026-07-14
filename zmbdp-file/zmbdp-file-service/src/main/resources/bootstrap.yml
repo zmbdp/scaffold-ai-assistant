@@ -1,0 +1,32 @@
+spring:
+  output:
+    ansi:
+      enabled: ALWAYS
+  application:
+    name: zmbdp-file-service
+  profiles:
+    active: ${RUN_ENV}
+  cloud:
+    nacos:
+      discovery:
+        username: nacos
+        password: Hf@173503494
+        namespace: scaffold-ai-assistant-${RUN_ENV}
+        server-addr: ${NACOS_ADDR}
+      config:
+        username: nacos
+        password: Hf@173503494
+        namespace: scaffold-ai-assistant-${RUN_ENV}
+        server-addr: ${NACOS_ADDR}
+        file-extension: yaml
+        shared-configs:
+          - data-id: share-redis-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-upload-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-log-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-monitor-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          - data-id: share-token-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true

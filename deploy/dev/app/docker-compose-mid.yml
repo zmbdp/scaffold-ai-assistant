@@ -1,0 +1,330 @@
+﻿version: '3.8'
+#启动命令 docker compose -p scaffold-ai-assistant -f docker-compose-mid.yml up -d
+services:
+  scaffold-ai-assistant-mysql:
+    container_name: scaffold-ai-assistant-mysql
+    image: mysql:8.4.2
+    ports:
+      - "3306:3306"
+    volumes:
+      # 数据挂载
+      - ../data/scaffold-ai-assistantdata/mysql/data:/var/lib/mysql
+      # 配置挂载
+      - ./mysql/init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./mysql/sql:/opt/sql
+    command: [
+      'mysqld',
+      '--innodb-buffer-pool-size=80M',
+      '--character-set-server=utf8mb4',
+      '--collation-server=utf8mb4_unicode_ci',
+      '--default-time-zone=+8:00',
+      '--lower-case-table-names=1',
+      '--explicit_defaults_for_timestamp=true',
+      '--server-id=1',
+      '--log-bin=mysql-bin',
+      '--binlog-ignore-db=mysql',
+      '--binlog-cache-size=256M',
+      '--binlog-format=ROW',
+      '--max_connections=2000'
+    ]
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    healthcheck:
+      test: mysql --user=zmbdpdev -h127.0.0.1 --password='Hf@173503494' -e "SELECT 1;"
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: Hf@173503494
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-nacos:
+    container_name: scaffold-ai-assistant-nacos
+    image: nacos/nacos-server:v2.2.2
+    environment:
+      - MODE=standalone
+      - JVM_XMS=512m
+      - JVM_XMX=512m
+      - JVM_XMN=256m
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=scaffold-ai-assistant-mysql
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_DB_NAME=scaffold-ai-assistant_nacos_dev
+      - MYSQL_SERVICE_USER=zmbdpdev
+      - MYSQL_SERVICE_PASSWORD=Hf@173503494
+    volumes:
+      - ../data/scaffold-ai-assistantdata/nacos/logs/:/home/nacos/logs
+      - ../data/scaffold-ai-assistantdata/nacos/tomcatlogs/:/home/bit/nacos/tomcat/logs/
+      - ./nacos/conf/application.properties:/home/nacos/conf/application.properties
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    depends_on:
+      scaffold-ai-assistant-mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8848/nacos" ]
+      start_period: 30s
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-redis:
+    container_name: scaffold-ai-assistant-redis
+    # 带有布隆过滤器版本的 redis 镜像
+    image: redislabs/rebloom:latest
+    # 普通版本 redis 镜像
+#    image: redis:7.0.15
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/conf/redis.conf:/usr/local/etc/redis/redis.conf
+      - ../data/scaffold-ai-assistantdata/redis/data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-rabbitmq:
+    image: rabbitmq:3.12.6-management
+    container_name: scaffold-ai-assistant-rabbit
+    restart: always
+    hostname: scaffold-ai-assistant-rabbit
+    environment:
+      # 用户名
+      RABBITMQ_DEFAULT_USER: zmbdp
+      # 密码
+      RABBITMQ_DEFAULT_PASS: Hf@173503494
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ../data/scaffold-ai-assistantdata/rabbit/log:/var/log/rabbit
+      - ../data/scaffold-ai-assistantdata/rabbit/data:/var/lib/rabbit
+    networks:
+      - scaffold-ai-assistant_network_dev
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==================== 链路追踪 SkyWalking ====================
+  scaffold-ai-assistant-skywalking-oap:
+    container_name: scaffold-ai-assistant-skywalking-oap
+    build:
+      context: ../../skywalking
+      dockerfile: Dockerfile
+    image: scaffold-ai-assistant-skywalking-oap:9.7.0-mysql
+    ports:
+      - "11800:11800"  # gRPC 端口（Agent 上报数据）
+      - "12800:12800"  # HTTP 端口（UI 查询数据）
+    environment:
+      TZ: Asia/Shanghai
+      SW_STORAGE: mysql
+      SW_JDBC_URL: jdbc:mysql://scaffold-ai-assistant-mysql:3306/scaffold-ai-assistant_skywalking_dev?serverTimezone=Asia/Shanghai&characterEncoding=utf8
+      SW_DATA_SOURCE_USER: zmbdpdev
+      SW_DATA_SOURCE_PASSWORD: Hf@173503494
+      SW_HEALTH_CHECKER: default
+      SW_TELEMETRY: prometheus
+      JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - ../data/scaffold-ai-assistantdata/skywalking/oap/logs:/skywalking/logs
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    depends_on:
+      scaffold-ai-assistant-mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:12800/internal/l7check || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-skywalking-ui:
+    container_name: scaffold-ai-assistant-skywalking-ui
+    image: apache/skywalking-ui:9.7.0
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+      SW_OAP_ADDRESS: http://scaffold-ai-assistant-skywalking-oap:12800
+      SW_ZIPKIN_ADDRESS: http://scaffold-ai-assistant-skywalking-oap:9412
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    depends_on:
+      scaffold-ai-assistant-skywalking-oap:
+        condition: service_healthy
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==================== 服务监控 Prometheus + Grafana ====================
+  scaffold-ai-assistant-prometheus:
+    container_name: scaffold-ai-assistant-prometheus
+    image: prom/prometheus:v2.48.0
+    user: "0:0"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/rules:/etc/prometheus/rules
+      - ../data/scaffold-ai-assistantdata/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=5GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: always
+    # 添加 extra_hosts 让容器能访问宿主机（用于 SSH 反向隧道）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scaffold-ai-assistant_network_dev
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-grafana:
+    container_name: scaffold-ai-assistant-grafana
+    image: grafana/grafana:10.2.2
+    user: "0:0"
+    ports:
+      - "3000:3000"
+    environment:
+      TZ: Asia/Shanghai
+      GF_SECURITY_ADMIN_USER: zmbdpdev
+      GF_SECURITY_ADMIN_PASSWORD: Hf@173503494
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      GF_DEFAULT_LOCALE: zh-Hans
+    volumes:
+      - ../data/scaffold-ai-assistantdata/grafana/data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    depends_on:
+      - scaffold-ai-assistant-prometheus
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-alertmanager:
+    container_name: scaffold-ai-assistant-alertmanager
+    image: prom/alertmanager:v0.26.0
+    user: "0:0"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ../data/scaffold-ai-assistantdata/alertmanager/data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: always
+    networks:
+      - scaffold-ai-assistant_network_dev
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==================== 定时任务调度 XXL-JOB ====================
+  scaffold-ai-assistant-xxljob-admin:
+    container_name: scaffold-ai-assistant-xxljob-admin
+    image: xuxueli/xxl-job-admin:2.4.2
+    ports:
+      - "8081:8080"
+    environment:
+      TZ: Asia/Shanghai
+      PARAMS: >-
+        --spring.datasource.url=jdbc:mysql://scaffold-ai-assistant-mysql:3306/scaffold-ai-assistant_xxljob_dev?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+        --spring.datasource.username=zmbdpdev
+        --spring.datasource.password=Hf@173503494
+        --xxl.job.accessToken=scaffold-ai-assistant_dev
+        --server.servlet.context-path=/xxl-job-admin
+    volumes:
+      - ../data/scaffold-ai-assistantdata/xxljob/logs:/data/applogs
+    restart: always
+    # Dev 环境：允许容器通过 host.docker.internal 访问宿主机（让调度中心能回调 XShell 隧道转发的本地端口）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scaffold-ai-assistant_network_dev
+    depends_on:
+      scaffold-ai-assistant-mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/xxl-job-admin" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  scaffold-ai-assistant_network_dev:

@@ -1,0 +1,63 @@
+# 自动处理文本文件换行符
+* text=auto
+
+# Shell 脚本强制使用 LF（Linux 必须）
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不处理
+*.jar binary
+*.zip binary
+*.tgz binary
+*.png binary
+*.jpg binary
+
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+/**/ca.pem
+/**/cert.pem
+/**/key.pem
+/PROJECT_STRUCTURE_DETAILED.md
+/logs/
+/**/skywalking-agent/
+/.idea/
