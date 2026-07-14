@@ -1,0 +1,109 @@
+version: '3.8'
+#启动命令 docker compose -p scaffold-ai-assistant -f docker-compose-app.yml up -d
+services:
+  scaffold-ai-assistant-admin:
+    build:
+      context: service/admin
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-admin-service:1.0-SNAPSHOT
+    container_name: scaffold-ai-assistant-admin-prd
+    ports:
+      - "18081:18081"
+    environment:
+      RUN_ENV: prd
+      NACOS_ADDR: 你的云服务器1内网ip/你的虚拟机1内网ip:8854,你的云服务器1内网ip/你的虚拟机1内网ip:8856,你的云服务器2内网ip/你的虚拟机2内网ip:8858
+      # SkyWalking Agent 配置
+      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-admin -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx256m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
+    volumes:
+      - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
+    networks:
+      scaffold-ai-assistant_network_prd:
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:18081/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  scaffold-ai-assistant-file:
+    build:
+      context: service/file
+    ports:
+      - "18082:18082"
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-file-service:1.0-SNAPSHOT
+    container_name: scaffold-ai-assistant-file-prd
+    environment:
+      RUN_ENV: prd
+      NACOS_ADDR: 你的云服务器1内网ip/你的虚拟机1内网ip:8854,你的云服务器1内网ip/你的虚拟机1内网ip:8856,你的云服务器2内网ip/你的虚拟机2内网ip:8858
+      # SkyWalking Agent 配置
+      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-file -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx256m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
+    volumes:
+      - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
+    networks:
+      scaffold-ai-assistant_network_prd:
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:18082/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  scaffold-ai-assistant-gateway:
+    build:
+      context: service/gateway
+    ports:
+      - "10030:10030"
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-gateway:1.0-SNAPSHOT
+    container_name: scaffold-ai-assistant-gateway-prd
+    environment:
+      RUN_ENV: prd
+      NACOS_ADDR: 你的云服务器1内网ip/你的虚拟机1内网ip:8854,你的云服务器1内网ip/你的虚拟机1内网ip:8856,你的云服务器2内网ip/你的虚拟机2内网ip:8858
+      # SkyWalking Agent 配置
+      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-gateway -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx256m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
+    volumes:
+      - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
+    networks:
+      scaffold-ai-assistant_network_prd:
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:10030/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  scaffold-ai-assistant-portal:
+    build:
+      context: service/portal
+    ports:
+      - "18083:18083"
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-portal-service:1.0-SNAPSHOT
+    container_name: scaffold-ai-assistant-portal-prd
+    environment:
+      RUN_ENV: prd
+      NACOS_ADDR: 你的云服务器1内网ip/你的虚拟机1内网ip:8854,你的云服务器1内网ip/你的虚拟机1内网ip:8856,你的云服务器2内网ip/你的虚拟机2内网ip:8858
+      # SkyWalking Agent 配置
+      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-portal -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx256m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
+    volumes:
+      - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
+    networks:
+      scaffold-ai-assistant_network_prd:
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:18083/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+networks:
+  scaffold-ai-assistant_network_prd:

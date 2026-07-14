@@ -1,0 +1,7 @@
+# redis 相关配置
+spring:
+  data:
+    redis:
+      host: 你的云服务器内网ip/你的虚拟机内网ip
+      port: 6379
+      password: Hf@173503494

@@ -1,0 +1,15 @@
+# Grafana Dashboard 配置
+apiVersion: 1
+
+providers:
+  - name: 'scaffold-ai-assistant Dashboards'
+    orgId: 1
+    folder: 'scaffold-ai-assistant'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
+

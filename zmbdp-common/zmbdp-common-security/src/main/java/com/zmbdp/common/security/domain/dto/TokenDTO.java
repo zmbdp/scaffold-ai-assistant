@@ -1,0 +1,35 @@
+package com.zmbdp.common.security.domain.dto;
+
+import com.zmbdp.common.core.utils.BeanCopyUtil;
+import com.zmbdp.common.domain.domain.vo.TokenVO;
+import lombok.Data;
+
+/**
+ * token 信息
+ *
+ * @author 稚名不带撇
+ */
+@Data
+public class TokenDTO {
+
+    /**
+     * 访问令牌
+     */
+    private String accessToken;
+
+    /**
+     * 过期时间
+     */
+    private Long expires;
+
+    /**
+     * 转换 tokenVO
+     *
+     * @return tokenVO
+     */
+    public TokenVO convertToVO() {
+        TokenVO tokenVO = new TokenVO();
+        BeanCopyUtil.copyProperties(this, tokenVO);
+        return tokenVO;
+    }
+}
