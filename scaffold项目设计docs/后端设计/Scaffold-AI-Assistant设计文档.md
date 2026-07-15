@@ -123,6 +123,7 @@ if (url.contains(HttpConstants.SYS_USER_PATH) &&        // SYS_USER_PATH = "sys_
 | **安全-限流** | C端单用户对话限流 | 通过 `@RateLimit` 注解限制单用户每分钟对话次数（默认100次/分钟） |
 | **成本-Token控制** | 单次对话Token上限 | 通过 `max_tokens` 配置（默认4096）限制单次对话输出长度 |
 | **成本-Embedding缓存** | 相同查询向量缓存 | 检索时对相同query的Embedding结果做Redis缓存（TTL 1小时），减少Embedding API调用 |
+| **缓存架构** | AI模块二级缓存 + 脚手架三级缓存 | AI模块自身用 L1 Caffeine + L2 Redis + MQ广播失效 二级缓存（对话记忆/AI配置，详见07文档7.12节）；脚手架三级缓存（布隆过滤器+Caffeine+Redis）是AI助手要讲解的业务功能，两者是不同层面的概念 |
 | **容量-向量库** | Milvus单节点支持百万级向量 | 生产环境初期单节点部署，每个分块1536维，单节点可支撑约100万分块 |
 | **容量-对话历史** | 对话历史保留30天 | 定时任务 `cleanExpiredHistory` 每天凌晨3点清理超过30天的对话记录 |
 | **容量-操作日志** | 操作日志保留90天 | 定时任务 `cleanExpiredLogs` 每天凌晨4点清理超过90天的操作日志 |
