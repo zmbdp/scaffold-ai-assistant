@@ -26,7 +26,7 @@
 >
 > **请求路径规则**：
 > - C端前端请求：`http://{gateway-ip}:10030/portal/{Controller内部路径}` → gateway匹配 `/portal/**` → StripPrefix=1后转发到portal-service `/{Controller内部路径}`
->   - 示例：前端请求 `http://ip:10030/portal/chat/stream` → gateway 转发到 portal-service `/chat/stream`
+>   - 示例：前端请求 `http://ip:10030/portal/chat/completions/stream` → gateway 转发到 portal-service `/chat/stream`
 > - B端前端请求：`http://{gateway-ip}:10030/admin/{Controller内部路径}` → gateway匹配 `/admin/**` → StripPrefix=1后转发到admin-service `/{Controller内部路径}`
 >   - 示例：前端请求 `http://ip:10030/admin/knowledge/sources` → gateway 转发到 admin-service `/knowledge/sources`
 
@@ -128,11 +128,14 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 
 | 接口 | Controller | Service | 调用的 Feign/WebClient | 说明 |
 |-----|-----------|---------|----------------------|------|
-| POST /portal/chat/stream | PortalChatController | PortalChatService | Feign ChatApi.retrieveContext() + WebClient /chat/completions/stream | 流式文本对话 |
-| POST /portal/chat/stream/image | PortalChatController | PortalChatService | Feign ChatApi.retrieveContext() + WebClient /chat/image/completions/stream | 流式图文对话 |
+| POST /portal/chat/completions/stream | PortalChatController | PortalChatService | Feign ChatApi.retrieveContext() + WebClient /chat/completions/stream | 流式文本对话 |
+| POST /portal/chat/image/completions/stream | PortalChatController | PortalChatService | Feign ChatApi.retrieveContext() + WebClient /chat/image/completions/stream | 流式图文对话 |
 | GET /portal/history | HistoryController | PortalHistoryService | Feign HistoryApi.getHistoryList() | 历史列表（从 JWT 提取 userId） |
 | GET /portal/history/{sessionId} | HistoryController | PortalHistoryService | Feign HistoryApi.getSessionHistory() | 会话详情 |
 | DELETE /portal/history/{sessionId} | HistoryController | PortalHistoryService | Feign HistoryApi.deleteSession() | 删除会话 |
+| POST /portal/feedback | FeedbackController | - | Feign FeedbackApi.submitFeedback() → IFeedbackService.submitFeedback() | 提交回答反馈 |
+| GET /portal/feedback/{conversationId} | FeedbackController | - | Feign FeedbackApi.getFeedback() → IFeedbackService.getFeedback() | 查询用户已提交的反馈 |
+| DELETE /portal/feedback/{conversationId} | FeedbackController | - | Feign FeedbackApi.deleteFeedback() → IFeedbackService.deleteFeedback() | 撤销反馈 |
 
 ### B端接口调用链路（zmbdp-admin-service → Feign → zmbdp-chat-service）
 
@@ -160,6 +163,10 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 | GET /admin/tools | ToolController | ToolsApi.getTools() | IAdminService.listTools() | 工具列表 |
 | PUT /admin/tools/{name} | ToolController | ToolsApi.updateToolConfig() | IAdminService.updateToolConfig() | 更新工具配置 |
 | POST /admin/tools/{name}/test | ToolController | ToolsApi.testTool() | IAdminService.testTool() | 测试工具 |
+| POST /admin/knowledge/retrieve-test | KnowledgeController | KnowledgeApi.retrieveTest() | IKnowledgeService.retrieveTest() | 知识源召回测试 |
+| GET /admin/statistics/ai-metrics/{operationId} | StatisticsController | StatisticsApi.getOperationDetail() | IStatisticsService.getOperationDetail() | 单次AI调用详情 |
+| GET /admin/statistics/feedback | StatisticsController | StatisticsApi.getFeedbackStats() | IStatisticsService.getFeedbackStats() | 回答满意度统计 |
+| GET /admin/system/health | SystemController | 直接处理（不走 Feign） | IAdminService 或直接返回 | 系统健康状态 |
 
 ### chat-service 内部 SSE 端点调用链路
 
@@ -755,7 +762,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ---
 
-### 8.6.6 GET /admin/operation-logs（AI调用链路日志）
+### 8.6.6 GET /admin/knowledge/logs（AI调用链路日志）
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -1586,7 +1593,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 **说明**：更新后立即生效；若 `enabled` 从 `false` 改为 `true`，工具会被 `ToolRegistryService` 重新注册；反之则被移除。`config` 字段内容因工具类型而异（如 ReadFileTool 的 `maxFileSize`、`pathWhitelist`，SearchCodeTool 的 `limit` 等）。
 
-**调用链路**：admin-service `ToolController.updateToolConfig()` → Feign `ToolsApi.updateToolConfig()` → chat-service `IAdminService.updateToolConfig()` → `ToolRegistryService` 刷新工具注册（详见 07-项目架构设计.md 7.0.4 节）
+**调用链路**：admin-service `ToolController.updateToolConfig()` → Feign `ToolsApi.updateToolConfig()` → chat-service `IAdminService.updateToolConfig()` → `ArgumentServiceApi`（更新 sys_argument 表的 ai.tool.{toolName}.enabled 配置项）+ `ToolRegistryService` 刷新工具注册（详见 07-项目架构设计.md 7.0.4 节）
 
 ---
 
@@ -1678,8 +1685,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": {
     "id": 9876543210,
     "conversationId": 1234567890,
@@ -1717,8 +1724,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": {
     "id": 9876543210,
     "conversationId": 1234567890,
@@ -1752,8 +1759,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": null
 }
 ```
@@ -1790,8 +1797,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": [
     {
       "content": "三级缓存架构包含布隆过滤器、Caffeine本地缓存和Redis分布式缓存...",
@@ -1819,8 +1826,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": {
     "overallStatus": "UP",
     "components": [
@@ -1895,8 +1902,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": {
     "id": 100001,
     "userId": 1001,
@@ -1966,8 +1973,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "code": 200,
-  "errMsg": "",
+  "code": 200000,
+  "errMsg": "操作成功",
   "data": {
     "likeCount": 120,
     "dislikeCount": 30,
