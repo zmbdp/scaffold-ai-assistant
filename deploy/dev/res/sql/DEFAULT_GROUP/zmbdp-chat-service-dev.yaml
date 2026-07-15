@@ -1,0 +1,97 @@
+server:
+  port: 18084
+
+# ==================== Spring AI 框架配置 ====================
+spring:
+  ai:
+    # 通义千问模型配置（DashScope）
+    dashscope:
+      api-key: # 你的通义千问API Key（建议通过环境变量 ${DASHSCOPE_API_KEY} 注入，不硬编码）
+      chat:
+        model: qwen-max
+        options:
+          temperature: 0.7
+          max-tokens: 4096
+      embedding:
+        model: text-embedding-v1
+    # 重排序模型配置
+    rerank:
+      model: gte-rerank
+    # Milvus 向量数据库配置（Spring AI 标准前缀）
+    milvus:
+      host: 127.0.0.1
+      port: 19530
+      database-name: default
+      collection-name: scaffold_knowledge
+      # text-embedding-v1 输出维度
+      embedding-dimension: 1536
+      index-type: HNSW
+      metric-type: IP
+      index-parameters:
+        efConstruction: 200
+        M: 16
+      query-parameters:
+        efRuntime: 100
+
+# ==================== RAG 检索参数配置 ====================
+scaffold:
+  rag:
+    # 默认检索数量，范围1-20
+    top-k: 5
+    # 上下文最大长度（字符）
+    context-max-length: 8000
+    # 对话历史轮数
+    memory-rounds: 5
+    # 重排序超时（毫秒），超时降级为 Milvus 原始排序
+    rerank-timeout: 5000
+  tool:
+    # 工具调用超时（秒）
+    timeout: 30
+  # 定时任务线程池配置
+  scheduler:
+    pool-size: 5
+    thread-name-prefix: "scheduled-"
+
+# ==================== Caffeine 本地缓存配置（L1，详见 07-项目架构设计.md 7.12 节） ====================
+caffeine:
+  build:
+    initial-capacity: 100
+    maximum-size: 1000
+    # 默认过期时间（秒），各缓存空间在代码中单独设置
+    expire: 30
+
+# ==================== 布隆过滤器配置（文档ID存在性检查，详见 07-项目架构设计.md 7.2.16 节） ====================
+bloom:
+  filter:
+    # 推荐redis实现，支持分布式（fast/safe/redis）
+    type: redis
+
+# ==================== 知识库路径配置（供 Agent 工具使用） ====================
+knowledge:
+  base-path: /path/to/scaffold-ai-assistant
+  # 路径白名单支持动态调整，范围包含整个项目
+  allowed-paths:
+    - /path/to/scaffold-ai-assistant
+  # 禁止访问的路径列表
+  path-blacklist:
+    - .git
+    - /etc
+    - /tmp
+  max-file-size: 10485760  # 最大文件大小（字节），默认10MB
+  # 知识同步定时任务
+  sync:
+    enabled: true
+    # 每小时执行一次
+    cron: "0 0 * * * ?"
+    force: false  # 是否强制同步（默认增量）
+
+# ==================== xxl-job 执行器配置（覆盖 share-xxljob-dev.yaml） ====================
+# XXL-JOB 执行器端口覆盖
+# 每个服务使用独立端口，避免多服务本地同时运行时端口冲突
+# 需在 XShell 新增 Remote 隧道：0.0.0.0:9984 -> 127.0.0.1:9984
+xxl:
+  job:
+    executor:
+      appname: zmbdp-chat-service-executor
+      port: 9984  # chat-service 执行器端口，遵循脚手架规律（admin=9981, portal=9983）
+      address: http://host.docker.internal:9984
