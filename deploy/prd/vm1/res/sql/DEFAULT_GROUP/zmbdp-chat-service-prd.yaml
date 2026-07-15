@@ -1,0 +1,80 @@
+server:
+  port: 18084
+
+# ==================== Spring AI 框架配置 ====================
+spring:
+  ai:
+    # 通义千问模型配置（DashScope）
+    dashscope:
+      api-key: # 你的通义千问API Key
+      chat:
+        model: qwen-max
+        options:
+          temperature: 0.7
+          max-tokens: 4096
+      embedding:
+        model: text-embedding-v1
+    # 重排序模型配置（详见 06-RAG流程设计.md 6.3.1 节）
+    rerank:
+      model: gte-rerank
+    # Milvus 向量数据库配置（Spring AI 标准前缀）
+    milvus:
+      host: 你的云服务器1内网ip/你的虚拟机1内网ip
+      port: 19530
+      database-name: default
+      collection-name: scaffold_knowledge
+      embedding-dimension: 1536  # text-embedding-v1 输出维度
+      index-type: HNSW
+      metric-type: IP
+      index-parameters:
+        efConstruction: 200
+        M: 16
+      query-parameters:
+        efRuntime: 100
+
+# ==================== RAG 检索参数配置 ====================
+scaffold:
+  rag:
+    top-k: 5
+    context-max-length: 8000
+    memory-rounds: 5
+    rerank-timeout: 5000
+  tool:
+    timeout: 30  # 工具调用超时（秒），详见 05-Agent工具设计.md 5.4 节
+  # 定时任务线程池配置（详见 07-项目架构设计.md 7.9.1 节）
+  scheduler:
+    pool-size: 5
+    thread-name-prefix: "scheduled-"
+
+# ==================== Caffeine 本地缓存配置（L1，详见 07-项目架构设计.md 7.12 节） ====================
+caffeine:
+  build:
+    initial-capacity: 100
+    maximum-size: 1000
+    expire: 30  # 默认过期时间（秒），各缓存空间在代码中单独设置
+
+# ==================== 布隆过滤器配置（文档ID存在性检查，详见 07-项目架构设计.md 7.2.16 节） ====================
+bloom:
+  filter:
+    type: redis  # 推荐redis实现，支持分布式（fast/safe/redis）
+
+# ==================== 知识库路径配置（供 Agent 工具使用） ====================
+knowledge:
+  base-path: /data/scaffold-ai-assistant
+  allowed-paths:
+    - /data/scaffold-ai-assistant
+  path-blacklist:
+    - .git
+    - /etc
+    - /tmp
+  max-file-size: 10485760
+  sync:
+    enabled: true
+    cron: "0 0 * * * ?"
+    force: false
+
+# ==================== xxl-job 执行器配置（覆盖 share-xxljob-prd.yaml） ====================
+xxl:
+  job:
+    executor:
+      appname: zmbdp-chat-service-executor

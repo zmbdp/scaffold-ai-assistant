@@ -160,8 +160,6 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 | GET /admin/tools | ToolController | ToolsApi.getTools() | IAdminService.listTools() | 工具列表 |
 | PUT /admin/tools/{name} | ToolController | ToolsApi.updateToolConfig() | IAdminService.updateToolConfig() | 更新工具配置 |
 | POST /admin/tools/{name}/test | ToolController | ToolsApi.testTool() | IAdminService.testTool() | 测试工具 |
-| POST /admin/data/backup | DataController | DataApi.backup() | IAdminService.backupData() | 数据备份 |
-| POST /admin/data/restore | DataController | DataApi.restore() | IAdminService.restoreData() | 数据恢复 |
 
 ### chat-service 内部 SSE 端点调用链路
 
@@ -182,11 +180,14 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 
 | HTTP方法 | 前端请求路径（经网关） | Controller内部路径 | Controller | 说明 | 调用方式 |
 | ------ | ---------------------- | --------------- | ---------- | ---- | ------ |
-| POST   | `/portal/chat/stream` | `/chat/stream` | `PortalChatController.streamChat()` | 流式对话（文本） | WebClient |
-| POST   | `/portal/chat/stream/image` | `/chat/stream/image` | `PortalChatController.streamChatWithImage()` | 流式对话（图文） | WebClient |
+| POST   | `/portal/chat/completions/stream` | `/chat/completions/stream` | `PortalChatController.streamChat()` | 流式对话（文本） | WebClient |
+| POST   | `/portal/chat/image/completions/stream` | `/chat/image/completions/stream` | `PortalChatController.streamChatWithImage()` | 流式对话（图文） | WebClient |
 | GET | `/portal/history` | `/history` | `HistoryController.getHistory()` | 获取对话历史列表 | Feign |
 | GET | `/portal/history/{sessionId}` | `/history/{sessionId}` | `HistoryController.getSessionHistory()` | 获取会话详情 | Feign |
 | DELETE | `/portal/history/{sessionId}` | `/history/{sessionId}` | `HistoryController.deleteSession()` | 删除会话 | Feign |
+| POST | `/portal/feedback` | `/feedback` | `FeedbackPortalController.submitFeedback()` | 提交回答反馈（点赞/点踩） | Feign |
+| GET | `/portal/feedback/{conversationId}` | `/feedback/{conversationId}` | `FeedbackPortalController.getFeedback()` | 查询用户已提交的反馈 | Feign |
+| DELETE | `/portal/feedback/{conversationId}` | `/feedback/{conversationId}` | `FeedbackPortalController.deleteFeedback()` | 撤销反馈 | Feign |
 
 ### 8.2.1 流式对话流程说明
 
@@ -198,14 +199,17 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 5. **流透传**：接收Flux<String>流数据，直接透传给前端
 
 **WebClient调用示例**（portal-service 中的 `PortalChatService`，注意与 chat-service 中的 `ChatService` 区分）：
+
+> **WebClient 配置**：`chatWebClient` 通过 `@LoadBalanced WebClient.Builder` 创建（详见 03-C端功能设计.md 3.0.1 节 WebClientConfig），使用 `lb://zmbdp-chat-service` 协议通过 Nacos 服务发现解析实际地址，**不硬编码 IP/端口**。
+
 ```java
 @Service
 public class PortalChatService {
-    private final WebClient chatWebClient;
+    private final WebClient chatWebClient;  // 通过 @LoadBalanced WebClient.Builder 注入
     private final ChatApi chatApi;
 
     public Flux<String> streamChat(ChatReqDTO request) {
-        // 步骤1: RAG检索获取上下文
+        // 步骤1: RAG检索获取上下文（Feign调用chat-service）
         Result<List<DocumentVO>> contextResult = chatApi.retrieveContext(
             RetrieveReqDTO.builder()
                 .question(request.getMessage())
@@ -216,9 +220,9 @@ public class PortalChatService {
         // 步骤2: 拼接Prompt
         String fullPrompt = buildPrompt(contextResult.getData(), request.getMessage());
         
-        // 步骤3: WebClient调用流式端点
+        // 步骤3: WebClient调用流式端点（通过@LoadBalanced服务发现，不硬编码IP/端口）
         return chatWebClient.post()
-            .uri("/chat/completions/stream")
+            .uri("lb://zmbdp-chat-service/chat/completions/stream")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(ChatStreamReqDTO.builder()
                 .message(request.getMessage())
@@ -254,6 +258,7 @@ public class PortalChatService {
 | GET | `/admin/knowledge/documents/{id}` | `/knowledge/documents/{id}` | 获取文档详情 |
 | DELETE | `/admin/knowledge/documents/{id}` | `/knowledge/documents/{id}` | 删除文档 |
 | GET | `/admin/knowledge/logs` | `/knowledge/logs` | 获取操作日志（知识库同步、配置修改等） |
+| POST | `/admin/knowledge/retrieve-test` | `/knowledge/retrieve-test` | 知识源召回测试（输入测试问题，返回检索结果及相似度） |
 | **AI配置管理** | | | |
 | GET | `/admin/ai/config` | `/ai/config` | 获取AI配置 |
 | PUT | `/admin/ai/config` | `/ai/config` | 更新AI配置 |
@@ -264,14 +269,15 @@ public class PortalChatService {
 | GET | `/admin/statistics/questions` | `/statistics/questions` | 获取热门问题 |
 | GET | `/admin/statistics/users` | `/statistics/users` | 获取用户统计 |
 | GET | `/admin/statistics/tools` | `/statistics/tools` | 获取工具使用统计 |
-| GET | `/admin/statistics/ai-metrics` | `/statistics/ai-metrics` | 获取AI调用指标 |
+| GET | `/admin/statistics/ai-metrics` | `/statistics/ai-metrics` | 获取AI调用指标（聚合） |
+| GET | `/admin/statistics/ai-metrics/{operationId}` | `/statistics/ai-metrics/{operationId}` | 查看单次AI调用详情（Prompt、响应、工具调用链路） |
+| GET | `/admin/statistics/feedback` | `/statistics/feedback` | 获取回答满意度统计（点赞率、点踩率、点踩原因分布） |
 | **工具管理** | | | |
 | GET | `/admin/tools` | `/tools` | 获取工具列表 |
 | PUT | `/admin/tools/{name}` | `/tools/{name}` | 更新工具配置 |
 | POST | `/admin/tools/{name}/test` | `/tools/{name}/test` | 测试工具 |
-| **数据管理** | | | |
-| POST | `/admin/data/backup` | `/data/backup` | 执行数据备份 |
-| POST | `/admin/data/restore` | `/data/restore` | 执行数据恢复 |
+| **系统管理** | | | |
+| GET | `/admin/system/health` | `/system/health` | 获取系统健康状态（MySQL/Redis/Nacos/Milvus/LLM 组件状态） |
 
 ---
 
@@ -331,6 +337,13 @@ public interface KnowledgeApi {
 
     @DeleteMapping("/documents/{id}")
     Result<Void> deleteDocument(@PathVariable Long id);
+
+    /**
+     * 知识源召回测试（输入测试问题，返回检索到的文档分块及相似度分数）
+     * 复用 /chat/retrieve 的 RAG 检索能力，用于验证知识库质量
+     */
+    @PostMapping("/retrieve-test")
+    Result<List<DocumentVO>> retrieveTest(@RequestBody RetrieveReqDTO request);
 }
 ```
 
@@ -376,6 +389,21 @@ public interface StatisticsApi {
 
     @GetMapping("/ai-metrics")
     Result<AiMetricsVO> getAiMetrics();
+
+    /**
+     * 查看单次AI调用详情（Prompt、LLM响应、工具调用链路）
+     * 数据来源：sys_ai_operation_log 表的显式字段（prompt/response/tool_calls/prompt_tokens等）
+     */
+    @GetMapping("/ai-metrics/{operationId}")
+    Result<OperationLogVO> getOperationDetail(@PathVariable("operationId") Long operationId);
+
+    /**
+     * 获取回答满意度统计（点赞率、点踩率、反馈率、点踩原因分布）
+     * 数据来源：sys_ai_feedback 表
+     */
+    @GetMapping("/feedback")
+    Result<FeedbackStatisticsVO> getFeedbackStatistics(@RequestParam(value = "startDate", required = false) Long startDate,
+                                                        @RequestParam(value = "endDate", required = false) Long endDate);
 }
 ```
 
@@ -415,9 +443,9 @@ public interface HistoryApi {
 }
 ```
 
-> **说明**：`userId` 由 portal-service 从 JWT Token 中解析后传递给 Feign 接口，chat-service 根据该 userId 过滤对话历史。
+> **说明**：`userId` 由 portal-service 通过 `tokenService.getLoginUser(token, secret)` 从 JWT Token 中解析后传递给 Feign 接口（注：TokenService 无 parseToken 方法，实际方法为 getLoginUser，需传入 jwt.token.secret 密钥），chat-service 根据该 userId 过滤对话历史。
 
-### 8.4.8 OperationLogApi（操作日志）
+### 8.4.8 OperationLogApi（AI调用链路日志）
 
 ```java
 @FeignClient(contextId = "operationLogApi", name = "zmbdp-chat-service", path = "/operation-log")
@@ -426,33 +454,63 @@ public interface OperationLogApi {
     @GetMapping("/list")
     Result<BasePageVO<OperationLogVO>> getLogs(@RequestParam(value = "pageNo", defaultValue = "1") Integer pageNo,
                                                @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize,
-                                               @RequestParam(value = "module", required = false) String module,
-                                               @RequestParam(value = "operation", required = false) String operation,
+                                               @RequestParam(value = "operationType", required = false) String operationType,
+                                               @RequestParam(value = "model", required = false) String model,
+                                               @RequestParam(value = "status", required = false) String status,
                                                @RequestParam(value = "startDate", required = false) Long startDate,
                                                @RequestParam(value = "endDate", required = false) Long endDate);
 }
 ```
 
-### 8.4.9 DataApi（数据备份恢复）
+> **数据来源**：AI调用链路日志存储在 `sys_ai_operation_log` 表（详见 07-项目架构设计.md 7.4.3.1 节操作日志职责边界对照表），由 chat-service 的 `IAdminService.listLogs()` 通过 `SysAiOperationLogMapper` 查询。注：B端管理操作审计（知识源CRUD、配置修改等）由脚手架 `@LogAction` 注解自动记录到 `operation_log` 表，不在本表查询。
+
+### 8.4.9 ~~DataApi~~（已移除）
+
+> **已移除**：数据备份恢复不在应用层实现，由 DevOps/DBA 工具负责（详见 04-B端功能设计.md 4.1 节说明）。
+> - **MySQL**：使用 `mysqldump` 或云数据库备份服务
+> - **Milvus**：使用 milvus-backup 工具
+> - **知识文件**：使用 `rsync`、`tar` 等标准文件系统备份工具
+
+### 8.4.10 FeedbackApi（回答反馈）
 
 ```java
-@FeignClient(contextId = "dataApi", name = "zmbdp-chat-service", path = "/data")
-public interface DataApi {
+@FeignClient(contextId = "feedbackApi", name = "zmbdp-chat-service", path = "/feedback")
+public interface FeedbackApi {
 
-    @PostMapping("/backup")
-    Result<BackupResultVO> backup(@RequestBody BackupReqDTO dto);
+    /**
+     * 提交回答反馈（点赞/点踩）
+     * 业务规则：同一用户对同一对话只能反馈一次（uk_conversation_user 唯一索引 + @Idempotent 双重防重）
+     */
+    @PostMapping
+    @Idempotent(message = "请勿重复提交反馈")  // 应用层幂等防重，配合唯一索引双重保障
+    Result<FeedbackVO> submitFeedback(@RequestBody FeedbackReqDTO request,
+                                       @RequestHeader("USER_ID") Long userId,
+                                       @RequestHeader("USER_FROM") String userFrom);
 
-    @PostMapping("/restore")
-    Result<RestoreResultVO> restore(@RequestBody RestoreReqDTO dto);
+    /**
+     * 查询用户对某对话已提交的反馈
+     */
+    @GetMapping("/{conversationId}")
+    Result<FeedbackVO> getFeedback(@PathVariable("conversationId") Long conversationId,
+                                    @RequestHeader("USER_ID") Long userId);
+
+    /**
+     * 撤销反馈（物理删除记录）
+     */
+    @DeleteMapping("/{conversationId}")
+    Result<Void> deleteFeedback(@PathVariable("conversationId") Long conversationId,
+                                 @RequestHeader("USER_ID") Long userId);
 }
 ```
+
+> **说明**：FeedbackApi 由 portal-service 通过 Feign 调用，用户信息（userId、userFrom）从 Gateway AuthFilter 设置的 Header 中获取。反馈数据存储在 `sys_ai_feedback` 表（详见 07-项目架构设计.md 7.4.8 节）。
 
 ---
 
 ## 8.5 HTTP SSE端点（zmbdp-chat-service）
 
 > **说明**：流式对话接口不通过Feign暴露，直接提供HTTP SSE端点，供portal-service通过WebClient调用。
-> **重要**：以下端点是 `zmbdp-chat-service` 内部接口（不经过网关，不对外暴露），由 portal-service 通过 WebClient 直接调用 `http://{chat-service-ip}:18084{path}`。
+> **重要**：以下端点是 `zmbdp-chat-service` 内部接口（不经过网关，不对外暴露），由 portal-service 通过 `@LoadBalanced` WebClient 调用 `lb://zmbdp-chat-service{path}`（通过 Nacos 服务发现解析实际地址，**不硬编码 IP/端口**）。
 
 ### 8.5.1 ChatStreamController（文本流式对话）
 
@@ -466,7 +524,7 @@ public class ChatStreamController {
 }
 ```
 
-**内部调用URL**：`http://{chat-service-ip}:18084/chat/completions/stream`
+**内部调用URL**：`lb://zmbdp-chat-service/chat/completions/stream`（通过 `@LoadBalanced` WebClient 调用，Nacos 服务发现自动解析实际地址）
 
 **请求参数**：`ChatStreamReqDTO`
 | 字段 | 类型 | 必填 | 说明 |
@@ -477,12 +535,23 @@ public class ChatStreamController {
 | model | String | 否 | 模型名称（默认 qwen-max） |
 | temperature | Double | 否 | 温度参数（默认 0.7） |
 
-**响应格式**（SSE）：
+**响应格式**（SSE，与03-C端功能设计.md 3.2.1节、05-Agent工具设计.md 5.3.3节、07-项目架构设计.md 7.2.13节一致）：
 ```
 data: {"chunk": "回答内容片段", "done": false}
 
+data: {"toolCall": {"name": "ReadFileTool", "args": {"filePath": "/path/to/file"}}, "done": false}
+
+data: {"toolResult": {"name": "ReadFileTool", "success": true, "summary": "读取文件成功，共123行", "duration": 45}, "done": false}
+
 data: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...]}
 ```
+
+> **SSE 帧类型**：
+> - **内容帧**（`chunk`）：AI 生成的回答内容片段
+> - **工具调用开始帧**（`toolCall`）：AI 决定调用工具时发送，告知前端正在调用哪个工具
+> - **工具调用结果帧**（`toolResult`）：工具执行完成后发送，告知前端工具执行结果摘要
+> - **结束帧**（`done: true`）：流结束，携带 sessionId、sources、model 等元数据
+> - **错误帧**（`error`）：异常时发送，如 `{"error": "AI服务连接失败", "code": 500023, "done": true}`
 
 ### 8.5.2 ChatWithImageStreamController（图文流式对话）
 
@@ -496,7 +565,7 @@ public class ChatWithImageStreamController {
 }
 ```
 
-**内部调用URL**：`http://{chat-service-ip}:18084/chat/image/completions/stream`
+**内部调用URL**：`lb://zmbdp-chat-service/chat/image/completions/stream`（通过 `@LoadBalanced` WebClient 调用，Nacos 服务发现自动解析实际地址）
 
 **请求参数**：`ChatWithImageStreamReqDTO`
 | 字段 | 类型 | 必填 | 说明 |
@@ -511,7 +580,7 @@ public class ChatWithImageStreamController {
 
 ## 8.6 接口详细设计
 
-### 8.6.1 POST /portal/chat/stream (流式文本对话)
+### 8.6.1 POST /portal/chat/completions/stream (流式文本对话)
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -551,7 +620,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ---
 
-### 8.6.2 POST /portal/chat/stream/image (流式图文对话)
+### 8.6.2 POST /portal/chat/image/completions/stream (流式图文对话)
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -686,7 +755,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ---
 
-### 8.6.6 GET /admin/knowledge/logs
+### 8.6.6 GET /admin/operation-logs（AI调用链路日志）
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -696,9 +765,10 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 | ----------- | ------- | --- | --------------------------------- |
 | `pageNo`    | Integer | 否   | 页码，默认1                            |
 | `pageSize`  | Integer | 否   | 每页数量，默认20                         |
-| `module`    | String  | 否   | 模块过滤（knowledge/ai_config/tools/statistics/data） |
-| `operation` | String  | 否   | 操作类型过滤（CREATE/UPDATE/DELETE/SYNC等） |
-| `startDate` | Long    | 否   | 开始日期（格式：20260311）                 |
+| `operationType` | String  | 否   | AI操作类型过滤（CHAT/RETRIEVE/EMBEDDING/RERANK） |
+| `model`     | String  | 否   | 模型名称过滤（如 qwen-max） |
+| `status`    | String  | 否   | 调用状态过滤（SUCCESS/FAILED/TIMEOUT） |
+| `startDate` | Long    | 否   | 开始日期（格式：20260712）                 |
 | `endDate`   | Long    | 否   | 结束日期（格式：20260712）                 |
 
 **响应体**：
@@ -710,20 +780,20 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
   "data": {
     "list": [
       {
-        "id": 1,
-        "userId": 1,
-        "username": "admin",
-        "userFrom": "sys",
-        "operation": "SYNC",
-        "module": "knowledge",
-        "targetId": 1,
-        "targetType": "KnowledgeSource",
-        "content": "知识库同步完成，新增文档10条",
+        "id": 100001,
+        "userId": 1001,
+        "userFrom": "app",
+        "conversationId": 1234567890,
+        "operationType": "CHAT",
+        "model": "qwen-max",
+        "promptTokens": 1200,
+        "completionTokens": 350,
+        "totalTokens": 1550,
+        "responseTime": 2300,
         "status": "SUCCESS",
         "errorMsg": null,
-        "ipAddress": "192.168.1.100",
-        "createDate": 20260712,
-        "createTime": "2026-07-12 10:00:00"
+        "createDate": 20260714,
+        "createTime": "2026-07-14 15:30:00"
       }
     ],
     "totals": 100,
@@ -732,7 +802,9 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 }
 ```
 
-**调用链路**：admin-service `LogController.getLogs()` → Feign `OperationLogApi.getLogs()` → chat-service `IAdminService.listLogs()`
+> **说明**：本接口查询 AI 调用链路日志（`sys_ai_operation_log` 表），列表页仅返回摘要信息（不含完整 prompt/response，避免响应过大）。完整链路详情通过 8.6.35 接口（`GET /admin/statistics/ai-metrics/{operationId}`）查看。B端管理操作审计（知识源CRUD等）由脚手架 `@LogAction` 自动记录到 `operation_log` 表。
+
+**调用链路**：admin-service `LogController.getLogs()` → Feign `OperationLogApi.getLogs()` → chat-service `IAdminService.listLogs()` → `SysAiOperationLogMapper`（查询 `sys_ai_operation_log` 表，详见 07-项目架构设计.md 7.4.3 节）
 
 ---
 
@@ -1074,9 +1146,9 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 }
 ```
 
-> **说明**：`apiKey` 字段为脱敏显示（仅展示前后4位），更新时传入完整 Key。
+> **说明**：`apiKey` 字段为脱敏显示（仅展示前后4位），api-key 属基础设施配置，统一在 Nacos 管理，不可通过此接口修改。
 
-**调用链路**：admin-service `AiConfigController.getConfig()` → Feign `AiConfigApi.getConfig()` → chat-service `IAdminService.getAiConfig()` → `SysAiConfigMapper`（读取 MySQL）
+**调用链路**：admin-service `AiConfigController.getConfig()` → Feign `AiConfigApi.getConfig()` → chat-service `IAdminService.getAiConfig()` → Feign `ArgumentServiceApi`（读取 `sys_argument` 表的 `ai.*` 配置项）+ Nacos 配置（读取基础设施配置）
 
 ---
 
@@ -1108,7 +1180,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 }
 ```
 
-**调用链路**：admin-service `AiConfigController.updateConfig()` → Feign `AiConfigApi.updateConfig()` → chat-service `IAdminService.updateAiConfig()` → `SysAiConfigMapper`（更新 MySQL）+ AES 加密 API Key
+**调用链路**：admin-service `AiConfigController.updateConfig()` → Feign `AiConfigApi.updateConfig()` → chat-service `IAdminService.updateAiConfig()` → Feign `ArgumentServiceApi`（更新 `sys_argument` 表的 `ai.*` 配置项）。注：api-key 等基础设施配置在 Nacos 管理，不通过此接口修改
 
 ---
 
@@ -1376,7 +1448,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 | `count` | Integer | 被问次数 |
 | `lastAskedTime` | Long | 最后一次提问时间戳 |
 
-**说明**：从 `sys_ai_conversation` 表按 user_message 字段分组统计，按 count 降序排序。
+**说明**：从 `sys_ai_conversation` 表按 `question` 字段分组统计（过滤 `is_deleted=0`），按 count 降序排序。
 
 **调用链路**：admin-service `StatisticsController.getHotQuestions()` → Feign `StatisticsApi.getHotQuestions()` → chat-service `IStatisticsService.getTopQuestions()`
 
@@ -1469,7 +1541,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 | `toolUsage[].failCount` | Integer | 失败次数 |
 | `toolUsage[].lastUsedTime` | Long | 最后使用时间戳 |
 
-**说明**：从 `sys_ai_operation_log` 表按 `module='tools'` 分组统计。
+**说明**：从 `sys_ai_operation_log` 表的 `tool_calls` 字段（JSON数组）解析工具调用记录，按工具名称分组统计。
 
 **调用链路**：admin-service `StatisticsController.getToolStatistics()` → Feign `StatisticsApi.getToolStatistics()` → chat-service `IStatisticsService.getToolUsageStats()`
 
@@ -1512,9 +1584,9 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 }
 ```
 
-**说明**：更新后立即生效；若 `enabled` 从 `false` 改为 `true`，工具会被重新注册到 `ToolExecutor`；反之则被移除。`config` 字段内容因工具类型而异（如 ReadFileTool 的 `maxFileSize`、`pathWhitelist`，SearchCodeTool 的 `limit` 等）。
+**说明**：更新后立即生效；若 `enabled` 从 `false` 改为 `true`，工具会被 `ToolRegistryService` 重新注册；反之则被移除。`config` 字段内容因工具类型而异（如 ReadFileTool 的 `maxFileSize`、`pathWhitelist`，SearchCodeTool 的 `limit` 等）。
 
-**调用链路**：admin-service `ToolController.updateToolConfig()` → Feign `ToolsApi.updateToolConfig()` → chat-service `IAdminService.updateToolConfig()` → 刷新 `ToolExecutor`
+**调用链路**：admin-service `ToolController.updateToolConfig()` → Feign `ToolsApi.updateToolConfig()` → chat-service `IAdminService.updateToolConfig()` → `ToolRegistryService` 刷新工具注册（详见 07-项目架构设计.md 7.0.4 节）
 
 ---
 
@@ -1570,7 +1642,17 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ---
 
-### 8.6.28 POST /admin/data/backup
+### 8.6.28 ~~POST /admin/data/backup~~（已移除）
+
+> **已移除**：数据备份不在应用层实现，由 DevOps/DBA 工具负责（详见 04-B端功能设计.md 4.1 节说明）。MySQL 使用 `mysqldump`，Milvus 使用 milvus-backup 工具。
+
+---
+
+### 8.6.29 ~~POST /admin/data/restore~~（已移除）
+
+> **已移除**：数据恢复不在应用层实现，由 DevOps/DBA 工具负责（详见 04-B端功能设计.md 4.1 节说明）。MySQL 使用 `mysqldump` 恢复，Milvus 使用 milvus-backup 工具。
+
+### 8.6.30 POST /portal/feedback（提交回答反馈）
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -1578,51 +1660,111 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "scope": "all",
-  "includeDocuments": true,
-  "includeVectors": true
+  "conversationId": 1234567890,
+  "feedbackType": "DISLIKE",
+  "dislikeReason": "CODE_ERROR",
+  "comment": "代码示例中缺少import语句"
 }
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `scope` | String | 否 | 备份范围（all/knowledge/ai_config），默认 all |
-| `includeDocuments` | Boolean | 否 | 是否包含文档内容（MySQL），默认 true |
-| `includeVectors` | Boolean | 否 | 是否包含向量数据（Milvus），默认 true |
+| `conversationId` | Long | 是 | 对话记录ID（关联sys_ai_conversation.id） |
+| `feedbackType` | String | 是 | 反馈类型（LIKE/DISLIKE，见 FeedbackType 枚举） |
+| `dislikeReason` | String | 否 | 点踩原因（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER，feedbackType=DISLIKE时必填） |
+| `comment` | String | 否 | 文字评论（最多500字符） |
 
 **响应体**：
 
 ```json
 {
-  "code": 200000,
-  "errMsg": "操作成功",
+  "code": 200,
+  "errMsg": "",
   "data": {
-    "backupId": "backup_20260713_001",
-    "backupFile": "/data/backups/backup_20260713_001.tar.gz",
-    "fileSize": 10485760,
-    "documentCount": 100,
-    "vectorCount": 500,
-    "createTime": 1700000000000
+    "id": 9876543210,
+    "conversationId": 1234567890,
+    "userId": 1001,
+    "feedbackType": "DISLIKE",
+    "dislikeReason": "CODE_ERROR",
+    "comment": "代码示例中缺少import语句",
+    "createDate": 20260714,
+    "createTime": "2026-07-14 15:30:00"
   }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `backupId` | String | 备份ID |
-| `backupFile` | String | 备份文件路径 |
-| `fileSize` | Long | 备份文件大小（字节） |
-| `documentCount` | Integer | 备份的文档数量 |
-| `vectorCount` | Integer | 备份的向量数量 |
-| `createTime` | Long | 备份时间戳 |
+**业务规则**：
+1. 同一用户对同一对话只能反馈一次（唯一索引 `uk_conversation_user` 保证）
+2. 接口加 `@Idempotent(message = "请勿重复提交反馈")` 注解（复用 `zmbdp-common-idempotent`），网络重试/双击场景在应用层直接拦截，避免重复提交报错
+3. 重复反馈返回错误码 `500030`（反馈已存在，请先撤销再重新提交）——唯一索引作为最终防线
+4. feedbackType=DISLIKE 时，dislikeReason 必填（Service 层校验，缺失返回 `500031`）
 
-**调用链路**：admin-service `DataController` → Feign `DataApi.backup()` → chat-service `IAdminService.backupData()` → `IVectorStoreService.exportVectors()` + `IKnowledgeService.exportDocuments()`
-
-**说明**：备份操作可能耗时较长（视数据量而定），建议在非高峰期执行。备份文件存储在 `/data/backups/` 目录下。
+**调用链路**：portal-service `FeedbackPortalController.submitFeedback()` → Feign `FeedbackApi.submitFeedback()` → chat-service `FeedbackController.submitFeedback()` → `IFeedbackService.submitFeedback()`
 
 ---
 
-### 8.6.29 POST /admin/data/restore
+### 8.6.31 GET /portal/feedback/{conversationId}（查询用户已提交的反馈）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**路径参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `conversationId` | Long | 对话记录ID |
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "errMsg": "",
+  "data": {
+    "id": 9876543210,
+    "conversationId": 1234567890,
+    "userId": 1001,
+    "feedbackType": "DISLIKE",
+    "dislikeReason": "CODE_ERROR",
+    "comment": "代码示例中缺少import语句",
+    "createDate": 20260714,
+    "createTime": "2026-07-14 15:30:00"
+  }
+}
+```
+
+> **说明**：用户未反馈时返回 `data: null`（非错误）。前端根据返回结果控制点赞/点踩按钮的选中状态。
+
+**调用链路**：portal-service `FeedbackPortalController.getFeedback()` → Feign `FeedbackApi.getFeedback()` → chat-service `FeedbackController.getFeedback()` → `IFeedbackService.getFeedback()`
+
+---
+
+### 8.6.32 DELETE /portal/feedback/{conversationId}（撤销反馈）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**路径参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `conversationId` | Long | 对话记录ID |
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "errMsg": "",
+  "data": null
+}
+```
+
+> **说明**：物理删除反馈记录（不软删除）。用户撤销后可重新提交反馈。
+
+**调用链路**：portal-service `FeedbackPortalController.deleteFeedback()` → Feign `FeedbackApi.deleteFeedback()` → chat-service `FeedbackController.deleteFeedback()` → `IFeedbackService.deleteFeedback()`
+
+---
+
+### 8.6.33 POST /admin/knowledge/retrieve-test（知识源召回测试）
 
 **请求头**：`Authorization: Bearer {token}`
 
@@ -1630,43 +1772,243 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "backupId": "backup_20260713_001",
-  "confirm": true
+  "question": "三级缓存怎么用？",
+  "topK": 5,
+  "sourceType": "doc",
+  "module": "common-cache"
 }
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `backupId` | String | 是 | 备份ID |
-| `confirm` | Boolean | 是 | 确认恢复（必须为 true，防止误操作） |
+| `question` | String | 是 | 测试问题 |
+| `topK` | Integer | 否 | 检索数量，默认5 |
+| `sourceType` | String | 否 | 文档类型过滤（doc/javadoc/config/code） |
+| `module` | String | 否 | 模块过滤 |
 
 **响应体**：
 
 ```json
 {
-  "code": 200000,
-  "errMsg": "操作成功",
+  "code": 200,
+  "errMsg": "",
+  "data": [
+    {
+      "content": "三级缓存架构包含布隆过滤器、Caffeine本地缓存和Redis分布式缓存...",
+      "title": "三级缓存架构.md",
+      "module": "common-cache",
+      "sourcePath": "docs/cache/三级缓存架构.md",
+      "score": 0.95,
+      "chunkIndex": 0
+    }
+  ]
+}
+```
+
+> **说明**：复用 `/chat/retrieve` 的 RAG 检索能力（Embedding生成 → Milvus检索 → Reranking重排序），用于管理员验证知识库质量。不调用LLM，仅返回检索结果。
+
+**调用链路**：admin-service → Feign `KnowledgeApi.retrieveTest()` → chat-service `KnowledgeController.retrieveTest()` → `IChatService.retrieve()`（复用RAG检索逻辑）
+
+---
+
+### 8.6.34 GET /admin/system/health（系统健康状态）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "errMsg": "",
   "data": {
-    "restoredDocuments": 100,
-    "restoredVectors": 500,
-    "duration": 30000
+    "overallStatus": "UP",
+    "components": [
+      {
+        "name": "MySQL",
+        "status": "UP",
+        "latency": 5,
+        "details": "连接正常"
+      },
+      {
+        "name": "Redis",
+        "status": "UP",
+        "latency": 2,
+        "details": "连接正常"
+      },
+      {
+        "name": "Nacos",
+        "status": "UP",
+        "latency": 8,
+        "details": "连接正常"
+      },
+      {
+        "name": "Milvus",
+        "status": "UP",
+        "latency": 15,
+        "details": "集合scaffold_knowledge正常"
+      },
+      {
+        "name": "LLM",
+        "status": "UP",
+        "latency": 120,
+        "details": "DashScope API可达"
+      }
+    ],
+    "checkTime": "2026-07-14 15:30:00"
   }
 }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `restoredDocuments` | Integer | 恢复的文档数量 |
-| `restoredVectors` | Integer | 恢复的向量数量 |
-| `duration` | Long | 恢复耗时（毫秒） |
+| `overallStatus` | String | 整体状态（UP/DOWN/PARTIAL） |
+| `components` | List | 各组件状态列表 |
+| `components[].name` | String | 组件名称（MySQL/Redis/Nacos/Milvus/LLM） |
+| `components[].status` | String | 组件状态（UP/DOWN） |
+| `components[].latency` | Long | 检测延迟（毫秒） |
+| `components[].details` | String | 详细信息（异常时含错误原因） |
+| `checkTime` | String | 检测时间 |
 
-**调用链路**：admin-service `DataController` → Feign `DataApi.restore()` → chat-service `IAdminService.restoreData()` → `IKnowledgeService.importDocuments()` + `IVectorStoreService.importVectors()`
+> **检测方式**：
+> - **MySQL**：执行 `SELECT 1` 测试连接
+> - **Redis**：执行 `PING` 命令
+> - **Nacos**：调用 Nacos OpenAPI `/ns/operator/metrics`
+> - **Milvus**：调用 `MilvusServiceClient.getCollectionStats()`
+> - **LLM**：调用 DashScope API 健康检查端点（轻量请求）
 
-**说明**：恢复操作会覆盖现有数据，`confirm` 参数必须为 `true` 才能执行。恢复前建议先备份当前数据。
+> **降级策略**：单个组件检测失败不影响其他组件检测结果，`overallStatus` 为 PARTIAL（部分组件异常），前端根据各组件 status 独立展示。
 
 ---
 
-**文档版本**：v1.5  
+### 8.6.35 GET /admin/statistics/ai-metrics/{operationId}（单次AI调用详情）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**路径参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `operationId` | Long | AI操作日志ID（sys_ai_operation_log.id） |
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "errMsg": "",
+  "data": {
+    "id": 100001,
+    "userId": 1001,
+    "userFrom": "app",
+    "conversationId": 1234567890,
+    "operationType": "CHAT",
+    "model": "qwen-max",
+    "prompt": "你是脚手架专家AI助手...[检索到的文档上下文]...[用户提问: 三级缓存怎么用？]",
+    "response": "三级缓存架构包含布隆过滤器、Caffeine本地缓存和Redis分布式缓存...",
+    "toolCalls": [
+      {"name": "ReadFileTool", "success": true, "duration": 45, "summary": "读取CacheConfig.java成功"}
+    ],
+    "promptTokens": 1200,
+    "completionTokens": 350,
+    "totalTokens": 1550,
+    "responseTime": 2300,
+    "status": "SUCCESS",
+    "errorMsg": null,
+    "createDate": 20260714,
+    "createTime": "2026-07-14 15:30:00"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Long | 日志ID |
+| `userId` | Long | 用户ID |
+| `userFrom` | String | 用户来源（sys/app） |
+| `conversationId` | Long | 关联对话ID |
+| `operationType` | String | AI操作类型（CHAT/RETRIEVE/EMBEDDING/RERANK） |
+| `model` | String | 模型名称 |
+| `prompt` | String | 完整Prompt（含RAG上下文） |
+| `response` | String | LLM完整响应 |
+| `toolCalls` | List | 工具调用链路 |
+| `toolCalls[].name` | String | 工具名称 |
+| `toolCalls[].success` | Boolean | 是否成功 |
+| `toolCalls[].duration` | Long | 耗时（毫秒） |
+| `toolCalls[].summary` | String | 结果摘要 |
+| `promptTokens` | Integer | Prompt Token数 |
+| `completionTokens` | Integer | 响应 Token数 |
+| `totalTokens` | Integer | 总 Token数 |
+| `responseTime` | Long | 响应耗时（毫秒） |
+| `status` | String | 调用状态（SUCCESS/FAILED/TIMEOUT） |
+| `errorMsg` | String | 失败原因 |
+| `createDate` | Long | 操作日期 |
+| `createTime` | String | 操作时间 |
+
+> **说明**：管理员通过此接口查看单次AI调用的完整链路，包含Prompt、LLM响应、工具调用详情和Token消耗，用于问题排查和效果评估。数据来源：`sys_ai_operation_log` 表的显式字段（`prompt`/`response`/`tool_calls`/`prompt_tokens` 等）。
+
+**调用链路**：admin-service → Feign `StatisticsApi.getOperationDetail()` → chat-service `StatisticsController.getOperationDetail()` → `IStatisticsService.getOperationDetail()` → 查询 `sys_ai_operation_log` 表
+
+---
+
+### 8.6.36 GET /admin/statistics/feedback（回答满意度统计）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**查询参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `startDate` | Long | 否 | 起始日期（格式：20260712） |
+| `endDate` | Long | 否 | 结束日期（格式：20260712） |
+
+**响应体**：
+
+```json
+{
+  "code": 200,
+  "errMsg": "",
+  "data": {
+    "likeCount": 120,
+    "dislikeCount": 30,
+    "totalFeedback": 150,
+    "feedbackCount": 150,
+    "totalConversations": 1200,
+    "likeRate": 80.0,
+    "dislikeRate": 20.0,
+    "feedbackRate": 12.5,
+    "dislikeReasonDistribution": [
+      {"reason": "OUTDATED", "count": 5, "percentage": 16.7},
+      {"reason": "IRRELEVANT", "count": 10, "percentage": 33.3},
+      {"reason": "CODE_ERROR", "count": 12, "percentage": 40.0},
+      {"reason": "OTHER", "count": 3, "percentage": 10.0}
+    ]
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `likeCount` | Long | 点赞数 |
+| `dislikeCount` | Long | 点踩数 |
+| `totalFeedback` | Long | 反馈总数（likeCount + dislikeCount） |
+| `feedbackCount` | Long | 反馈用户数（去重） |
+| `totalConversations` | Long | 对话总数（用于计算反馈率） |
+| `likeRate` | Double | 点赞率（%）（likeCount / totalFeedback × 100） |
+| `dislikeRate` | Double | 点踩率（%）（dislikeCount / totalFeedback × 100） |
+| `feedbackRate` | Double | 反馈率（%）（totalFeedback / totalConversations × 100） |
+| `dislikeReasonDistribution` | List | 点踩原因分布 |
+| `dislikeReasonDistribution[].reason` | String | 点踩原因（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER） |
+| `dislikeReasonDistribution[].count` | Long | 该原因的点踩数 |
+| `dislikeReasonDistribution[].percentage` | Double | 该原因占比（%） |
+
+> **说明**：未传 startDate/endDate 时默认统计最近7天数据。`dislikeReasonDistribution` 帮助管理员定位回答质量问题（如 CODE_ERROR 占比高说明知识库代码分块不准确，需优化分块策略）。
+
+**调用链路**：admin-service → Feign `StatisticsApi.getFeedbackStatistics()` → chat-service `StatisticsController.getFeedbackStatistics()` → `IStatisticsService.getFeedbackStatistics()` → 查询 `sys_ai_feedback` 表聚合
+
+---
+
+**文档版本**：v1.6  
 **创建日期**：2026-07-12  
-**最后更新**：2026-07-13  
+**最后更新**：2026-07-14  
 **适用版本**：Scaffold AI Assistant v1.0

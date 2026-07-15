@@ -73,6 +73,16 @@ scrape_configs:
           application: 'file'
           environment: 'test'
 
+  # AI 服务监控（Test 环境 - 服务部署在 Docker 容器）
+  - job_name: 'zmbdp-chat'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'scaffold-ai-assistant-chat-test:18084' ]
+        labels:
+          service: 'zmbdp-chat'
+          application: 'chat'
+          environment: 'test'
+
   # 模板服务监控（Test 环境 - 服务部署在 Docker 容器）
   - job_name: 'zmbdp-mstemplate'
     metrics_path: '/actuator/prometheus'

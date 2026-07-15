@@ -36,6 +36,11 @@
         <spring-boot.version>3.3.3</spring-boot.version>
         <spring-cloud-alibaba.version>2023.0.1.2</spring-cloud-alibaba.version>
         <spring-cloud.version>2023.0.3</spring-cloud.version>
+        <!-- AI 框架版本（Spring AI Alibaba 1.0 GA，详见主文档1.2节版本选型说明） -->
+        <spring-ai.version>1.0.0</spring-ai.version>
+        <spring-ai-alibaba.version>1.0.0.2</spring-ai-alibaba.version>
+        <milvus-sdk.version>2.4.5</milvus-sdk.version>
+        <javaparser.version>3.26.1</javaparser.version>
         <redisson.version>3.29.0</redisson.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <commons-collections4.version>4.4</commons-collections4.version>
@@ -92,6 +97,38 @@
                 <version>${spring-cloud-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- Spring AI Alibaba 1.0 GA（AI 框架 BOM，统一管理 spring-ai 和 spring-ai-alibaba 版本） -->
+            <dependency>
+                <groupId>com.alibaba.cloud.ai</groupId>
+                <artifactId>spring-ai-alibaba-bom</artifactId>
+                <version>${spring-ai-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Spring AI BOM（Spring AI 官方 BOM，与 spring-ai-alibaba 1.0.0.2 配套） -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Milvus 向量数据库客户端 -->
+            <dependency>
+                <groupId>io.milvus</groupId>
+                <artifactId>milvus-sdk-java</artifactId>
+                <version>${milvus-sdk.version}</version>
+            </dependency>
+
+            <!-- JavaParser（Java 源码分块解析，详见 06-RAG流程设计.md 6.1.1 节） -->
+            <dependency>
+                <groupId>com.github.javaparser</groupId>
+                <artifactId>javaparser-symbol-solver-core</artifactId>
+                <version>${javaparser.version}</version>
             </dependency>
 
             <!-- SpringCloud 微服务 -->
@@ -240,6 +277,29 @@
 
         </dependencies>
     </dependencyManagement>
+
+    <!-- Spring AI 1.0.0 的 artifact 部署在 Spring Milestones 仓库，必须配置 -->
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>aliyun-public</id>
+            <name>aliyun-public</name>
+            <url>https://maven.aliyun.com/repository/public</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
     <build>
         <pluginManagement>
