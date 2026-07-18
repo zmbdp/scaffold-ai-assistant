@@ -21,7 +21,7 @@ public class ZmbdpChatServiceApplication {
      * @param args 参数
      */
     public static void main(String[] args) {
-        SpringApplication.run(ZmbdpchatServiceApplication.class, args);
+        SpringApplication.run(ZmbdpChatServiceApplication.class, args);
         log.info("chat 服务启动成功......");
     }
 }

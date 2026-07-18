@@ -3,7 +3,7 @@ version: '3.8'
 services:
   scaffold-ai-assistant-mysql-master:
     container_name: scaffold-ai-assistant-mysql-master
-    image: mysql:8.4.2
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/mysql:8.4.2
     ports:
       - "3308:3306"
     volumes:
@@ -50,7 +50,7 @@ services:
         max-file: "3"
   scaffold-ai-assistant-redis01:
     container_name: scaffold-ai-assistant-redis01
-    image: redislabs/rebloom:latest
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/rebloom:latest
     ports:
       - "6380:6380"
       - "16380:16380"
@@ -74,11 +74,10 @@ services:
 
   scaffold-ai-assistant-redis02:
     container_name: scaffold-ai-assistant-redis02
-    image: redislabs/rebloom:latest
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/rebloom:latest
     ports:
       - "6381:6381"
       - "16381:16381"
-    volumes:
     volumes:
       - ./redis/conf/redis02.conf:/usr/local/etc/redis/redis.conf
       - ../data/scaffold-ai-assistantdata/redis02/data:/data
@@ -99,7 +98,7 @@ services:
 
   scaffold-ai-assistant-redis03:
     container_name: scaffold-ai-assistant-redis03
-    image: redislabs/rebloom:latest
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/rebloom:latest
     # 普通版本 redis 镜像
     #    image: redis:7.0.15
     ports:
@@ -124,7 +123,7 @@ services:
         max-file: "3"
   scaffold-ai-assistant-nacos01:
     container_name: scaffold-ai-assistant-nacos01
-    image: nacos/nacos-server:v2.2.2
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/nacos-server:v2.2.2
     environment:
       - MODE=cluster
       - JVM_XMS=512m
@@ -165,7 +164,7 @@ services:
         max-file: "3"
   scaffold-ai-assistant-nacos02:
     container_name: scaffold-ai-assistant-nacos02
-    image: nacos/nacos-server:v2.2.2
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/nacos-server:v2.2.2
     environment:
       - MODE=cluster
       - JVM_XMS=512m
@@ -205,7 +204,7 @@ services:
         max-size: "10m"
         max-file: "3"
   scaffold-ai-assistant-rabbitmq01:
-    image: rabbitmq:3.12.6-management
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/rabbitmq:3.12.6-management
     container_name: scaffold-ai-assistant-rabbitmq01
     restart: always
     hostname: scaffold-ai-assistant-rabbitmq01
@@ -266,7 +265,7 @@ services:
     build:
       context: ../../skywalking
       dockerfile: Dockerfile
-    image: scaffold-ai-assistant-skywalking-oap:9.7.0-mysql
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/skywalking-oap:9.7.0-mysql
     ports:
       - "11800:11800"  # gRPC 端口（Agent 上报数据）
       - "12800:12800"  # HTTP 端口（UI 查询数据）
@@ -300,7 +299,7 @@ services:
 
   scaffold-ai-assistant-skywalking-ui:
     container_name: scaffold-ai-assistant-skywalking-ui
-    image: apache/skywalking-ui:9.7.0
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/skywalking-ui:9.7.0
     ports:
       - "8080:8080"
     environment:
@@ -321,7 +320,7 @@ services:
   # ==================== 服务监控 Prometheus + Grafana ====================
   scaffold-ai-assistant-prometheus:
     container_name: scaffold-ai-assistant-prometheus
-    image: prom/prometheus:v2.48.0
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/prometheus:v2.48.0
     user: "0:0"
     ports:
       - "9090:9090"
@@ -353,7 +352,7 @@ services:
 
   scaffold-ai-assistant-grafana:
     container_name: scaffold-ai-assistant-grafana
-    image: grafana/grafana:10.2.2
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/grafana:10.2.2
     user: "0:0"
     ports:
       - "3000:3000"
@@ -384,7 +383,7 @@ services:
 
   scaffold-ai-assistant-alertmanager:
     container_name: scaffold-ai-assistant-alertmanager
-    image: prom/alertmanager:v0.26.0
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/alertmanager:v0.26.0
     user: "0:0"
     ports:
       - "9093:9093"
@@ -410,7 +409,7 @@ services:
   # ==================== 定时任务调度 XXL-JOB ====================
   scaffold-ai-assistant-xxljob-admin:
     container_name: scaffold-ai-assistant-xxljob-admin
-    image: xuxueli/xxl-job-admin:2.4.2
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/xxl-job-admin:2.4.2
     ports:
       - "8081:8080"
     environment:

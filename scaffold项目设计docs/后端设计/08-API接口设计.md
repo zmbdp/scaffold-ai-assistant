@@ -207,12 +207,12 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 
 **WebClient调用示例**（portal-service 中的 `PortalChatService`，注意与 chat-service 中的 `ChatService` 区分）：
 
-> **WebClient 配置**：`chatWebClient` 通过 `@LoadBalanced WebClient.Builder` 创建（详见 03-C端功能设计.md 3.0.1 节 WebClientConfig），使用 `lb://zmbdp-chat-service` 协议通过 Nacos 服务发现解析实际地址，**不硬编码 IP/端口**。
+> **WebClient 配置**：`chatWebClientBuilder` 通过 `@LoadBalanced WebClient.Builder` 注入（详见 03-C端功能设计.md 3.0.1 节 WebClientConfig），使用 `lb://zmbdp-chat-service` 协议通过 Nacos 服务发现解析实际地址，**不硬编码 IP/端口**。
 
 ```java
 @Service
 public class PortalChatService {
-    private final WebClient chatWebClient;  // 通过 @LoadBalanced WebClient.Builder 注入
+    private final WebClient.Builder chatWebClientBuilder;  // @LoadBalanced 注入，build() 后使用
     private final ChatApi chatApi;
 
     public Flux<String> streamChat(ChatReqDTO request) {
@@ -228,7 +228,7 @@ public class PortalChatService {
         String fullPrompt = buildPrompt(contextResult.getData(), request.getMessage());
         
         // 步骤3: WebClient调用流式端点（通过@LoadBalanced服务发现，不硬编码IP/端口）
-        return chatWebClient.post()
+        return chatWebClientBuilder.build().post()
             .uri("lb://zmbdp-chat-service/chat/completions/stream")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(ChatStreamReqDTO.builder()
@@ -511,6 +511,11 @@ public interface FeedbackApi {
 ```
 
 > **说明**：FeedbackApi 由 portal-service 通过 Feign 调用，用户信息（userId、userFrom）从 Gateway AuthFilter 设置的 Header 中获取。反馈数据存储在 `sys_ai_feedback` 表（详见 07-项目架构设计.md 7.4.8 节）。
+>
+> **@Idempotent 注解位置重要说明**：`IdempotentAspect` 的切点定义为 `@annotation(com.zmbdp.common.idempotent.annotation.Idempotent)`，**只匹配目标类自己声明的方法上的注解，不会从接口继承**。因此：
+> - Feign 接口 `FeedbackApi` 上的 `@Idempotent` **仅作为接口契约声明**，不会触发 AOP 切面
+> - **实际生效位置**：必须在 chat-service 的 `FeedbackController.submitFeedback()` 方法上**显式添加** `@Idempotent(message = "请勿重复提交反馈")` 注解
+> - Controller 实现类继承 Feign 接口时，方法签名一致，但注解需在实现类方法上重新声明
 
 ---
 

@@ -175,8 +175,8 @@ public class SearchCodeTool {
 
 ```
 1. 校验 keyword 非空
-2. 遍历 allowed-paths 下的所有 .java 文件（使用 java.nio.file.Files.walkFileTree）
-3. 逐行读取文件内容，匹配 keyword：
+2. 遍历 allowed-paths 下的所有 .java 文件（使用 `FileUtil.loopFiles()`，复用 `zmbdp-common-core`，继承 Hutool FileUtil）
+3. 逐行读取文件内容（使用 `FileUtil.readUtf8Lines()`），匹配 keyword：
    ├─ 类名匹配：文件中包含 "class {keyword}" 或 "interface {keyword}"
    ├─ 方法名匹配：行中包含 keyword 且为方法签名格式（含括号）
    └─ 全文匹配：行中包含 keyword
@@ -248,7 +248,7 @@ public class ListDirTool {
 ```
 1. 校验dirPath是否在允许的知识库路径内
 2. 如果不在白名单，抛出SecurityException
-3. 递归遍历目录结构
+3. 使用 `FileUtil`（复用 `zmbdp-common-core`）递归遍历目录结构
 4. 生成ASCII目录树（最多显示3层深度）
 5. 返回目录树字符串
 ```
@@ -324,7 +324,7 @@ public class SearchInFileTool {
 
 ```
 1. 校验filePath是否在允许的知识库路径内
-2. 使用Java NIO读取文件内容（按行读取）
+2. 使用 `FileUtil.readUtf8Lines()`（复用 `zmbdp-common-core`）按行读取文件内容
 3. 查找包含keyword的行
 4. 收集匹配行及前后2行上下文
 5. 返回匹配结果（最多返回20个匹配）
@@ -420,7 +420,7 @@ public class NacosConfigTool {
 @Component
 public class CompareConfigTool {
 
-    @Tool(description = "对比不同环境的配置差异，参数dataId为配置ID，env1和env2为要对比的两个环境（dev/test/prd）。用于排查环境差异问题。")
+    @Tool(description = "对比不同环境的配置差异，参数dataId为配置ID（不带环境后缀，如share-redis），env1和env2为要对比的两个环境（dev/test/prd），工具内部自动拼接 -{env}.yaml。用于排查环境差异问题。")
     public String compareConfig(String dataId, String env1, String env2) {
         // 实现逻辑见下文
     }
@@ -439,7 +439,7 @@ public class CompareConfigTool {
 
 | 参数名      | 类型     | 必填  | 说明                  |
 | -------- | ------ | --- | ------------------- |
-| `dataId` | String | 是   | 配置ID（如 share-redis） |
+| `dataId` | String | 是   | 配置ID（不带环境后缀，如 `share-redis`，工具内部自动拼接 `-{env}.yaml`） |
 | `env1`   | String | 是   | 环境1（dev/test/prd）   |
 | `env2`   | String | 是   | 环境2（dev/test/prd）   |
 
