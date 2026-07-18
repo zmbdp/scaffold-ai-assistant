@@ -115,8 +115,13 @@ collection_name: scaffold_knowledge
 ```
 
 **索引设计**：
-- **向量索引**：HNSW索引，metric_type=IP，efConstruction=200，M=16
+- **向量索引**：HNSW索引，metric_type=IP，efConstruction=200，M=16，efRuntime=100（查询参数）
 - **标量索引**：对 document_id、source_type、module、category 建立标量索引
+
+> **metadata 字段与标量索引/过滤表达式的关系说明**：
+> - `source_type`、`module`、`category` 等元数据字段存储在 metadata（JSON 字段）内，但通过 Milvus 2.4+ 的 JSON 字段索引功能，可像 top-level 字段一样建立标量索引和过滤
+> - 6.3.2 节的过滤表达式 `source_type == "doc" and module == "common-cache"` 是 Milvus JSON 字段索引支持的简化语法（Milvus 内部自动解析为 `metadata["source_type"] == "doc"`）
+> - 实现时需在 `initCollection()` 中对 metadata 字段创建 JSON 部分键索引（partial key index），才能支持上述过滤表达式
 
 > **说明**：`embedding_model` 字段用于记录向量生成时使用的模型，当切换 Embedding 模型时可用于识别需要重新向量化的分块。
 
@@ -378,9 +383,10 @@ Assistant: 上一个回答
    ├─ 遍历每个文档分块
    ├─ 格式：---文档{N}: {title}（模块: {module}）---\n{content}
    └─ 限制总长度（默认8000字符，超出则截断低分文档）
-4. 通过 Feign 调用 HistoryApi.getSessionHistory(sessionId, 5) 获取最近5轮对话历史
-   ├─ 优先从 Redis（IChatMemoryService）读取，延迟低
-   └─ Redis 不可用时降级查 MySQL（sys_ai_conversation 表），保证可用性
+4. 通过 Feign 调用 HistoryApi.getSessionHistory(sessionId) 获取对话历史，取最近5轮用于 Prompt
+   ├─ chat-service 内部：IChatMemoryService.getHistory 读取 L1 Caffeine → Redis List → DB 降级（SysAiConversationMapper）
+   ├─ 取最近 N 轮（N=scaffold.rag.memory-rounds，默认5）用于 Prompt 拼接
+   └─ portal-service 作为调用方无需感知 L1/L2/DB 分层，只需通过 Feign 获取最终结果
 5. 拼接完整Prompt：System Prompt + 文档上下文 + 对话历史 + 用户提问
 6. 将完整Prompt传给 chat-service 的 SSE 端点
 ```
