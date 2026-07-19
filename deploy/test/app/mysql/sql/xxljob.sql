@@ -135,22 +135,30 @@ CREATE TABLE `xxl_job_lock`
 
 -- 初始化执行器（示例）
 INSERT INTO `xxl_job_group`(`id`, `app_name`, `title`, `address_type`, `address_list`, `update_time`)
-VALUES(1, 'zmbdp-admin-service-executor', 'Admin服务执行器', 0, NULL, NOW()),
+VALUES (1, 'zmbdp-admin-service-executor', 'Admin服务执行器', 0, NULL, NOW()),
        (2, 'zmbdp-portal-service-executor', '门户服务执行器', 0, NULL, NOW()),
        (3, 'zmbdp-file-service-executor', '文件服务执行器', 0, NULL, NOW()),
-       (4, 'zmbdp-mstemplate-service-executor', '模板服务执行器', 0, NULL, NOW());
+       (4, 'zmbdp-mstemplate-service-executor', '模板服务执行器', 0, NULL, NOW()),
+       (5, 'zmbdp-chat-service-executor', 'AI聊天服务执行器', 0, NULL, NOW());
 
 -- 初始化示例任务（布隆过滤器重置任务）
-INSERT INTO `xxl_job_info`(`id`, `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
-                           `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
-                           `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
-                           `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
-                           `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`,
-                           `trigger_next_time`)
-VALUES (1, 1, '布隆过滤器重置任务', NOW(), NOW(), 'zmbdptest', '',
-        'CRON', '0 0 4 * * ?', 'DO_NOTHING', 'FIRST',
-        'resetBloomFilterJobHandler', '', 'SERIAL_EXECUTION', 0, 1,
-        'BEAN', '', 'GLUE代码初始化', NOW(), '', 0, 0, 0);
+INSERT INTO `xxl_job_info` (`id`, `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+                            `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+                            `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+                            `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`, `glue_updatetime`,
+                            `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`)
+VALUES (1, 1, '布隆过滤器重置任务', NOW(), NOW(), 'zmbdptest', '', 'CRON', '0 0 4 * * ?', 'DO_NOTHING',
+        'FIRST', 'resetBloomFilterJobHandler', '', 'SERIAL_EXECUTION', 0, 0, 'BEAN', '', 'GLUE代码初始化',
+        NOW(), '', 0, 0, 0),
+       (2, 5, '知识同步定时任务', NOW(), NOW(), 'zmbdptest', '', 'CRON', '0 0 2 * * ?',
+        'DO_NOTHING', 'FIRST', 'knowledgeSyncJob', 'false', 'SERIAL_EXECUTION', 0, 1, 'BEAN', '', 'GLUE代码初始化',
+        NOW(), '', 0, 0, 0),
+       (3, 5, '清理过期对话历史定时任务', NOW(), NOW(), 'zmbdptest', '', 'CRON',
+        '0 0 3 * * ?', 'DO_NOTHING', 'FIRST', 'cleanExpiredHistoryJob', '30', 'SERIAL_EXECUTION', 0, 1, 'BEAN', '',
+        'GLUE代码初始化', NOW(), '', 0, 0, 0),
+       (4, 5, '清理过期 AI 调用链路日志定时任务', NOW(), NOW(), 'zmbdptest', '', 'CRON',
+        '0 0 4 * * ?', 'DO_NOTHING', 'FIRST', 'cleanExpiredLogsJob', '90', 'SERIAL_EXECUTION', 0, 1, 'BEAN', '',
+        'GLUE代码初始化', NOW(), '', 0, 0, 0)
 
 -- 初始化管理员用户
 -- 用户名：zmbdptest  密码：Hf@173503494（MD5加密后）

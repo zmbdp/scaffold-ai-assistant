@@ -36,6 +36,13 @@ spring:
             - Path=/portal/**
           filters:
             - StripPrefix=1
+        # AI 聊天微服务
+        - id: zmbdp-chat-service
+          uri: lb://zmbdp-chat-service
+          predicates:
+            - Path=/portal/**
+          filters:
+            - StripPrefix=1
 
 
 security:

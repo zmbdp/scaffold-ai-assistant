@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zmbdp.chat.service.mapper.SysAiConversationMapper">
+
+    <!-- 按 user_id 分页查询会话列表（按 session_id 聚合） -->
+    <!-- 字段映射：last_time（datetime）→ timestamp（Long 毫秒），通过 UNIX_TIMESTAMP * 1000 转换 -->
+    <select id="selectSessionListByUserId" resultType="com.zmbdp.chat.api.history.domain.vo.HistoryVO">
+        SELECT
+            session_id AS sessionId,
+            UNIX_TIMESTAMP(MAX(create_time)) * 1000 AS timestamp,
+            COUNT(*) AS messageCount,
+            MAX(model) AS model,
+            MAX(question) AS lastMessage
+        FROM sys_ai_conversation
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+          AND status = 'SUCCESS'
+        GROUP BY session_id
+        ORDER BY MAX(create_time) DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 按 user_id 查询会话总数（按 session_id 去重） -->
+    <select id="selectSessionCountByUserId" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT session_id)
+        FROM sys_ai_conversation
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+          AND status = 'SUCCESS'
+    </select>
+
+    <!-- 统计对话总数（status='SUCCESS' 且 is_deleted=0） -->
+    <select id="countTotalConversations" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+    </select>
+
+    <!-- 统计今日对话数 -->
+    <select id="countTodayConversations" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+          AND create_date = #{today}
+    </select>
+
+    <!-- 统计平均响应时间（毫秒） -->
+    <select id="avgResponseTime" resultType="java.lang.Long">
+        SELECT IFNULL(AVG(response_time), 0)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+    </select>
+
+    <!-- 统计近 N 天活跃用户数（按 user_id 去重） -->
+    <select id="countActiveUsers" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT user_id)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+          AND create_date &gt;= #{startDate}
+    </select>
+
+    <!-- 按日期分组统计近 N 天每日对话数 -->
+    <!-- DATE_FORMAT(create_date, '%Y-%m-%d') 将 BIGINT 日期转为字符串格式 -->
+    <select id="countDailyTrend" resultType="java.util.Map">
+        SELECT
+            DATE_FORMAT(STR_TO_DATE(create_date, '%Y%m%d'), '%Y-%m-%d') AS date,
+            COUNT(*) AS count
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+          AND create_date &gt;= #{startDate}
+        GROUP BY create_date
+        ORDER BY create_date ASC
+    </select>
+
+    <!-- 按问题内容分组统计热门问题 TOP N -->
+    <select id="selectTopQuestions" resultType="com.zmbdp.chat.api.statistics.domain.vo.HotQuestionVO">
+        SELECT
+            question,
+            COUNT(*) AS count,
+            UNIX_TIMESTAMP(MAX(create_time)) * 1000 AS lastAskedTime
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+          AND question IS NOT NULL
+          AND question != ''
+        GROUP BY question
+        ORDER BY count DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 统计总用户数（按 user_id 去重） -->
+    <select id="countTotalUsers" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT user_id)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+    </select>
+
+    <!-- 查询 Top 活跃用户列表（按对话次数降序） -->
+    <select id="selectTopUsers" resultType="com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO$TopUser">
+        SELECT
+            user_id AS userId,
+            COUNT(*) AS conversationCount,
+            UNIX_TIMESTAMP(MAX(create_time)) * 1000 AS lastActiveTime
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+        GROUP BY user_id
+        ORDER BY conversationCount DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 统计对话总数（用于反馈率计算） -->
+    <select id="countTotalConversationsForFeedback" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_conversation
+        WHERE is_deleted = 0
+          AND status = 'SUCCESS'
+    </select>
+
+    <!-- 按 session_id 查询会话所有者 userId（用于归属校验，LIMIT 1 提升效率） -->
+    <select id="selectOwnerUserIdBySessionId" resultType="java.lang.Long">
+        SELECT user_id
+        FROM sys_ai_conversation
+        WHERE session_id = #{sessionId}
+          AND is_deleted = 0
+        LIMIT 1
+    </select>
+
+</mapper>

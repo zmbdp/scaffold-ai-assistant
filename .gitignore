@@ -52,6 +52,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### Maven 调试输出 ###
+effective-pom
+
 ### Mac OS ###
 .DS_Store
 /**/ca.pem

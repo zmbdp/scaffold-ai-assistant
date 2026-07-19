@@ -198,4 +198,39 @@ public class DesensitizeUtil {
             default -> value; // 未知类型，不脱敏
         };
     }
+
+    /**
+     * 通用脱敏方法：保留前 prefix 位和后 suffix 位，中间用 * 替换
+     * <p>
+     * 适用于 API Key、密钥、Token 等需要自定义保留位数的敏感数据脱敏。
+     * <p>
+     * <b>示例：</b>
+     * <pre>
+     * desensitize("sk-abcdefghij1234567890wxyz", 4, 4) -> "sk-a***wxyz"
+     * desensitize("abcdef", 2, 2) -> "ab****ef"（长度不足时全部替换为 *）
+     * desensitize("ab", 4, 4) -> "ab"（长度小于等于 prefix+suffix 时不脱敏）
+     * </pre>
+     *
+     * @param value  原始数据
+     * @param prefix 保留前缀位数（必须 &gt;= 0）
+     * @param suffix 保留后缀位数（必须 &gt;= 0）
+     * @return 脱敏后的数据；输入为空返回原值；长度不足时返回原值或部分脱敏
+     */
+    public static String desensitize(String value, int prefix, int suffix) {
+        if (StringUtil.isEmpty(value)) {
+            return value;
+        }
+        if (prefix < 0 || suffix < 0) {
+            return value;
+        }
+        int length = value.length();
+        // 长度小于等于保留位数之和，不脱敏（避免信息全部暴露或无意义脱敏）
+        if (length <= prefix + suffix) {
+            return value;
+        }
+        String pre = value.substring(0, prefix);
+        String suf = value.substring(length - suffix);
+        int maskLen = length - prefix - suffix;
+        return pre + "*".repeat(maskLen) + suf;
+    }
 }

@@ -666,7 +666,7 @@ data: {"toolResult": {"name": "ReadFileTool", "success": true, "summary": "读�
 data: {"chunk": "ReadFileTool 的 readFile 方法位于第34行", "done": false}
 
 # 4. 结束帧
-data: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...], "model": "qwen-max"}
+data: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...], "model": "deepseek-v4-flash"}
 ```
 
 > **帧设计说明**（参考 OpenAI Assistants API、LangChain Streaming 的 tool_start/tool_end 事件对）：
@@ -741,7 +741,7 @@ data: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...], "model":
    ├─ 工具调用开始帧: {"toolCall": {"name": "ReadFileTool", "args": {"filePath": "/project/.../ReadFileTool.java"}}, "done": false}
    ├─ 工具调用结果帧: {"toolResult": {"name": "ReadFileTool", "success": true, "summary": "读取文件成功，共123行", "duration": 45}, "done": false}
    ├─ 内容帧: {"chunk": "readFile 方法的源码如下：\n```java\n...", "done": false}
-   └─ 结束帧: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...], "model": "qwen-max"}
+   └─ 结束帧: {"chunk": "", "done": true, "sessionId": "xxx", "sources": [...], "model": "deepseek-v4-flash"}
 
 9. 流结束后，PortalChatService 异步保存对话历史
 ```
