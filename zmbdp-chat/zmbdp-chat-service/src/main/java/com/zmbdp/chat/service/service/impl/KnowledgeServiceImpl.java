@@ -248,25 +248,10 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
             }
         }
         // 构建更新实体
-        SysAiKnowledgeSource update = new SysAiKnowledgeSource();
+        SysAiKnowledgeSource update = BeanCopyUtil.copyProperties(dto, SysAiKnowledgeSource.class);
         update.setId(id);
-        if (StringUtils.hasText(dto.getName())) {
-            update.setName(dto.getName());
-        }
-        if (StringUtils.hasText(dto.getPath())) {
-            update.setPath(dto.getPath());
-        }
-        if (StringUtils.hasText(dto.getType())) {
-            update.setType(dto.getType());
-        }
         if (dto.getEnabled() != null) {
             update.setEnabled(dto.getEnabled() ? DEFAULT_ENABLED : 0);
-        }
-        if (dto.getChunkSize() != null) {
-            update.setChunkSize(dto.getChunkSize());
-        }
-        if (dto.getChunkOverlap() != null) {
-            update.setChunkOverlap(dto.getChunkOverlap());
         }
         update.setUpdateDate(Long.parseLong(LocalDate.now().format(DATE_FORMATTER)));
         sysAiKnowledgeSourceMapper.updateById(update);

@@ -495,7 +495,7 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
                         if (!hashMatch) {
                             log.debug("文件 hash 变更，标记为更新：{}", entry.getKey());
                         } else {
-                            log.warn("文件 DB 记录异常（chunk_count={}, hash={}），重新同步：{}",
+                            log.warn("文件 DB 记录异常（chunk_count = {}, hash = {}），重新同步：{}",
                                     existing.getChunkCount(), existing.getHash(), entry.getKey());
                         }
                     }

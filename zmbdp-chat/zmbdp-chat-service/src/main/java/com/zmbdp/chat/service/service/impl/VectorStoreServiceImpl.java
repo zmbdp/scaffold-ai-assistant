@@ -303,13 +303,13 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                 }
 
                 if (existingDim == configuredDim) {
-                    log.info("Milvus 集合 {} 已存在且维度一致（dim={}），跳过创建", collectionName, configuredDim);
+                    log.info("Milvus 集合 {} 已存在且维度一致（dim = {}），跳过创建", collectionName, configuredDim);
                     ensureCollectionLoaded(collectionName);
                     return;
                 }
 
                 // 维度不一致
-                log.warn("Milvus 集合 {} 维度不一致：现有={}, 配置={}", collectionName, existingDim, configuredDim);
+                log.warn("Milvus 集合 {} 维度不一致：现有 = {}, 配置 = {}", collectionName, existingDim, configuredDim);
                 if (!autoRebuildOnDimensionMismatch) {
                     log.error("自动重建已禁用（spring.ai.milvus.auto-rebuild-on-dimension-mismatch=false），" +
                             "维度不匹配将导致向量插入/检索失败，请手动处理：drop collection {} 后重启服务", collectionName);
@@ -380,7 +380,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
             log.error("创建 Milvus 集合失败：{}", createR);
             return;
         }
-        log.info("Milvus 集合 {} 创建成功（dim={}）", collectionName, milvusConfig.getEmbeddingDimension());
+        log.info("Milvus 集合 {} 创建成功（dim = {}）", collectionName, milvusConfig.getEmbeddingDimension());
 
         // 2. 创建向量索引（HNSW + IP，参数从 Nacos 读取）
         IndexType indexType = IndexType.valueOf(milvusConfig.getIndexType().toUpperCase());
