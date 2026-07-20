@@ -120,8 +120,8 @@ services:
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
       # 挂载 frameworkjava 脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取
-      # 服务器上需将 frameworkjava 脚手架放在 /data/scaffold-ai-assistant/frameworkjava
-      - /data/scaffold-ai-assistant/frameworkjava:/knowledge:ro
+      # 服务器上需将 frameworkjava 脚手架放在 /opt/scaffold-ai-assistant/frameworkjava
+      - /opt/scaffold-ai-assistant/frameworkjava:/knowledge:ro
     networks:
       network_prd:
     healthcheck:

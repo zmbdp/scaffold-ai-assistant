@@ -192,6 +192,7 @@ function rankMatch(match, category) {
     var input = match.input;
     var leftBoundaryMatch = 2;
     var periferalMatch = 0;
+
     // make sure match is anchored on a left word boundary
     if (index === 0 || /\W/.test(input[index - 1]) || "_" === input[index]) {
         leftBoundaryMatch = 0;
@@ -201,6 +202,7 @@ function rankMatch(match, category) {
     var matchEnd = index + match[0].length;
     var leftParen = input.indexOf("(");
     var endOfName = leftParen > -1 ? leftParen : input.length;
+
     // exclude peripheral matches
     if (category !== catModules && category !== catSearchTags) {
         var delim = category === catPackages ? "/" : ".";

@@ -465,7 +465,7 @@ environment:
 
 ```yaml
 frameworkJava-web:
-  image: nginx:1.24.0
+  image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/nginx:1.24.0
   container_name: frameworkJava-web
   ports:
     - "80:80"
@@ -480,7 +480,7 @@ frameworkJava-web:
 
 ```yaml
 frameworkJava-web-prd01:
-  image: nginx:1.24.0
+  image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/nginx:1.24.0
   container_name: frameworkJava-web-prd01
   ports:
     - "8666:80"
@@ -499,7 +499,7 @@ vm2 额外部署一个 Nginx 容器 `frameworkJava-webnacos`，用于对 3 节�
 
 ```yaml
 frameworkJava-webnacos:
-  image: nginx:1.24.0
+  image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/nginx:1.24.0
   container_name: frameworkJava-webnacos
   ports:
     - "8866:8886"

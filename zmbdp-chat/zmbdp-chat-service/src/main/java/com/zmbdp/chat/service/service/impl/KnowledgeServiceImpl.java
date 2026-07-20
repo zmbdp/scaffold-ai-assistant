@@ -29,11 +29,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 知识库管理服务实现类
@@ -73,6 +79,20 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
      * 日期格式化器（YYYYMMDD，与脚手架统一）
      */
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 上传文件大小上限：50MB（与设计文档 08-API 接口设计 一致）
+     */
+    private static final long MAX_UPLOAD_FILE_SIZE = 50L * 1024 * 1024;
+
+    /**
+     * 允许上传的文件扩展名（小写，不含点）
+     * <p>
+     * 与设计文档 08-API 接口设计 一致：.md, .txt, .html, .java, .py, .xml, .json
+     */
+    private static final Set<String> ALLOWED_UPLOAD_EXTENSIONS = Arrays.stream(
+                    new String[]{"md", "txt", "html", "java", "py", "xml", "json"})
+            .collect(Collectors.toUnmodifiableSet());
 
     /**
      * 知识源 mapper
@@ -392,6 +412,71 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
         boolean force = dto != null && Boolean.TRUE.equals(dto.getForce());
         log.info("触发知识同步：force = {}", force);
         return knowledgeLoaderService.syncKnowledge(force);
+    }
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 校验文件非空、文件大小 ≤ 50MB、文件扩展名合法后，读取文件内容委托给
+     * {@link IKnowledgeLoaderService#uploadDocument} 执行保存+分块+向量化。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件（MultipartFile）
+     * @return 新插入的文档 VO（含生成的 ID）
+     */
+    @Override
+    public KnowledgeDocumentVO uploadDocument(Long knowledgeSourceId, MultipartFile file) {
+        // 1. 校验 knowledgeSourceId
+        if (knowledgeSourceId == null) {
+            throw new ServiceException("知识源ID不能为空", ResultCode.INVALID_PARA.getCode());
+        }
+        // 2. 校验文件非空
+        if (file == null || file.isEmpty()) {
+            throw new ServiceException("上传文件不能为空", ResultCode.INVALID_PARA.getCode());
+        }
+        // 3. 校验文件大小
+        if (file.getSize() > MAX_UPLOAD_FILE_SIZE) {
+            throw new ServiceException("文件大小超过 50MB 限制：当前 " + (file.getSize() / 1024 / 1024) + "MB",
+                    ResultCode.INVALID_PARA.getCode());
+        }
+        // 4. 校验文件名和扩展名
+        String originalFilename = file.getOriginalFilename();
+        if (!StringUtils.hasText(originalFilename)) {
+            throw new ServiceException("文件名不能为空", ResultCode.INVALID_PARA.getCode());
+        }
+        String extension = extractExtension(originalFilename);
+        if (!ALLOWED_UPLOAD_EXTENSIONS.contains(extension)) {
+            throw new ServiceException("不支持的文件类型：." + extension
+                    + "，仅支持 " + ALLOWED_UPLOAD_EXTENSIONS, ResultCode.INVALID_PARA.getCode());
+        }
+        // 5. 读取文件内容为 UTF-8 字符串
+        String content;
+        try {
+            content = new String(file.getBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("读取上传文件内容失败：fileName = {}", originalFilename, e);
+            throw new ServiceException("读取文件内容失败：" + e.getMessage(), ResultCode.INVALID_PARA.getCode());
+        }
+        // 6. 委托给 KnowledgeLoaderService 执行保存+分块+向量化
+        log.info("上传文档：knowledgeSourceId = {}, fileName = {}, size = {} 字节",
+                knowledgeSourceId, originalFilename, file.getSize());
+        SysAiDocument document = knowledgeLoaderService.uploadDocument(knowledgeSourceId, originalFilename, content);
+        // 7. 转换为 VO 返回（含完整内容）
+        return entityToDocumentVO(document, true);
+    }
+
+    /**
+     * 提取文件扩展名（小写，不含点）
+     *
+     * @param fileName 文件名
+     * @return 扩展名；无扩展名返回空字符串
+     */
+    private String extractExtension(String fileName) {
+        int dotIdx = fileName.lastIndexOf('.');
+        if (dotIdx < 0 || dotIdx == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(dotIdx + 1).toLowerCase();
     }
 
     /*=============================================    私有方法    =============================================*/

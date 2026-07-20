@@ -29,7 +29,7 @@ public class AiConfigDTO implements Serializable {
     private String defaultModel;
 
     /**
-     * 默认视觉模型名称（如 qwen-vl-max）
+     * 默认视觉模型名称（如 qwen-vl-plus）
      */
     private String defaultVisionModel;
 

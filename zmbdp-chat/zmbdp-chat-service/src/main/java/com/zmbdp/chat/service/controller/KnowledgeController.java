@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,10 +29,7 @@ import java.util.Map;
 /**
  * 知识库管理 Controller（chat-service 端）
  * <p>
- * 实现 {@link KnowledgeApi} Feign 接口，提供知识源 CRUD、文档管理、知识同步、召回测试等能力
- * <p>
- * <b>注意</b>：上传文档接口（{@code POST /knowledge/documents/upload}）涉及 MultipartFile，
- * 由 admin-service 直接代理，不通过 Feign 调用，因此本 Controller 不包含上传方法。
+ * 实现 {@link KnowledgeApi} Feign 接口，提供知识源 CRUD、文档管理、文档上传、知识同步、召回测试等能力
  * <p>
  * <b>召回测试</b>：{@link #retrieveTest} 复用 {@link IVectorStoreService} 的 RAG 检索能力
  * （Embedding → Milvus 检索 → Reranking），与 {@link ChatController#retrieveContext} 共用同一套检索逻辑。
@@ -186,6 +184,25 @@ public class KnowledgeController implements KnowledgeApi {
                 request.getQuestion(), request.getTopK(), request.getSourceType(), request.getModule());
         List<DocumentVO> list = doRetrieve(request);
         return Result.success(list);
+    }
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 将上传的文件保存到知识源 path 目录下，并立即对该文件执行分块、向量化、写入 Milvus。
+     * <p>
+     * <b>文件限制</b>：大小 ≤ 50MB；扩展名 ∈ {.md, .txt, .html, .java, .py, .xml, .json}。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件
+     * @return 新插入的文档 VO（含生成的 ID）
+     */
+    @Override
+    public Result<KnowledgeDocumentVO> uploadDocument(Long knowledgeSourceId, MultipartFile file) {
+        log.info("上传文档：knowledgeSourceId = {}, fileName = {}, size = {} 字节",
+                knowledgeSourceId, file != null ? file.getOriginalFilename() : null, file != null ? file.getSize() : 0);
+        KnowledgeDocumentVO vo = knowledgeService.uploadDocument(knowledgeSourceId, file);
+        return Result.success(vo);
     }
 
     /*=============================================    私有方法    =============================================*/

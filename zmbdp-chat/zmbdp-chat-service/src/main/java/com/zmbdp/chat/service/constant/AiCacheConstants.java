@@ -28,6 +28,7 @@ public class AiCacheConstants {
      * Fanout 类型交换机会忽略 routing key，此处定义仅为规范和可扩展性
      */
     public static final String CACHE_INVALIDATE_ROUTING_KEY = "cache.invalidate";
+
     /**
      * 缓存空间：对话记忆（Redis List 为数据存储，L1 Caffeine 为对象副本）
      * <p>
@@ -42,6 +43,7 @@ public class AiCacheConstants {
      * 失效语义：删 L2 Redis + 广播删 L1 Caffeine（invalidate / invalidateAll）
      */
     public static final String AI_CONFIG = "AI_CONFIG";
+
     /**
      * 对话记忆 Redis List 前缀（数据存储，非缓存）
      * <p>
@@ -56,6 +58,7 @@ public class AiCacheConstants {
      * 完整 key：ai:config:{configKey}
      */
     public static final String AI_CONFIG_REDIS_PREFIX = "ai:config:";
+
     /**
      * 对话记忆 Redis List TTL（7 天，单位秒）
      */
@@ -66,14 +69,17 @@ public class AiCacheConstants {
      * 对话记忆 L1 Caffeine TTL（5 分钟，单位秒）
      */
     public static final long CHAT_MEMORY_CAFFEINE_TTL_SECONDS = 300L;
+
     /**
      * 对话记忆 L1 Caffeine 最大条数
      */
     public static final int CHAT_MEMORY_CAFFEINE_MAX_SIZE = 1000;
+
     /**
      * 每会话最多保存的消息条数（Redis List 裁剪阈值）
      */
     public static final int CHAT_MEMORY_MAX_MESSAGES_PER_SESSION = 100;
+
     /**
      * Milvus 集合名
      */
@@ -84,26 +90,32 @@ public class AiCacheConstants {
      * Milvus 向量维度（text-embedding-v1 输出维度）
      */
     public static final int MILVUS_VECTOR_DIMENSION = 1536;
+
     /**
      * Milvus 向量字段名
      */
     public static final String MILVUS_VECTOR_FIELD = "vector";
+
     /**
      * Milvus 内容字段名
      */
     public static final String MILVUS_CONTENT_FIELD = "content";
+
     /**
      * Milvus 文档ID字段名
      */
     public static final String MILVUS_DOCUMENT_ID_FIELD = "document_id";
+
     /**
      * Milvus 分块索引字段名
      */
     public static final String MILVUS_CHUNK_INDEX_FIELD = "chunk_index";
+
     /**
      * Milvus 元数据字段名
      */
     public static final String MILVUS_METADATA_FIELD = "metadata";
+
     /**
      * Milvus 文档ID布隆过滤器名
      * <p>

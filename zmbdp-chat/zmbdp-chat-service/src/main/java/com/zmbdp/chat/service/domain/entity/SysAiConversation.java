@@ -57,7 +57,7 @@ public class SysAiConversation {
     private String images;
 
     /**
-     * 使用的模型名称（如 deepseek-v4-flash、qwen-vl-max）
+     * 使用的模型名称（如 deepseek-v4-flash、qwen-vl-plus）
      */
     private String model;
 

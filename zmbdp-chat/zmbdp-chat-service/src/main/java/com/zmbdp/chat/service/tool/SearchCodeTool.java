@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
@@ -100,7 +101,7 @@ public class SearchCodeTool {
      * @param limit   返回结果数量（可选，默认 10）
      * @return 匹配的类/方法列表 JSON；异常时返回错误 JSON
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "在代码库中搜索类或方法，参数keyword为搜索关键词（类名、方法名等），limit为返回结果数量。用于查找某个功能在哪里实现。"
     )
     public String searchCode(String keyword, Integer limit) {

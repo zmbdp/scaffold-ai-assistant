@@ -586,7 +586,7 @@ public class ChatWithImageStreamController {
 | images | List<String> | 是 | 图片Base64编码列表 |
 | sessionId | String | 否 | 会话ID |
 | prompt | String | 是 | 完整Prompt（含上下文） |
-| model | String | 否 | 模型名称（默认 qwen-vl-max） |
+| model | String | 否 | 模型名称（默认 qwen-vl-plus） |
 
 ---
 
@@ -643,7 +643,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
   "message": "这张图片里的代码是什么意思？",
   "images": ["base64_image_data"],
   "sessionId": "abc123",
-  "model": "qwen-vl-max",
+  "model": "qwen-vl-plus",
   "temperature": 0.7
 }
 ```
@@ -1146,7 +1146,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
   "errMsg": "操作成功",
   "data": {
     "defaultModel": "deepseek-v4-flash",
-    "defaultVisionModel": "qwen-vl-max",
+    "defaultVisionModel": "qwen-vl-plus",
     "temperature": 0.7,
     "maxTokens": 4096,
     "embeddingModel": "text-embedding-v1",
@@ -1173,7 +1173,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 ```json
 {
   "defaultModel": "deepseek-v4-flash",
-  "defaultVisionModel": "qwen-vl-max",
+  "defaultVisionModel": "qwen-vl-plus",
   "temperature": 0.5,
   "maxTokens": 4096,
   "topK": 5,
@@ -1216,7 +1216,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
       "description": "通义千问大模型"
     },
     {
-      "name": "qwen-vl-max",
+      "name": "qwen-vl-plus",
       "provider": "alibaba",
       "type": "vision",
       "capabilities": ["text", "image"],
@@ -1308,7 +1308,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
     "avgLatency": 3200,
     "topModels": [
       {"model": "deepseek-v4-flash", "count": 1800},
-      {"model": "qwen-vl-max", "count": 200}
+      {"model": "qwen-vl-plus", "count": 200}
     ]
   }
 }
