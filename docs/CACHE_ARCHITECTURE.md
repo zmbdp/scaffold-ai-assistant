@@ -2,7 +2,7 @@
 
 ## 架构设计
 
-scaffold-ai-assistant 采用**三级缓存架构**，有效防止缓存穿透，提升系统性能。
+frameworkJava 采用**三级缓存架构**，有效防止缓存穿透，提升系统性能。
 
 ```
 请求
@@ -107,7 +107,7 @@ scaffold-ai-assistant 采用**三级缓存架构**，有效防止缓存穿透，
 
 ### 布隆过滤器重置
 
-布隆过滤器只增不减，随着时间推移需要定期重置并重新预热。scaffold-ai-assistant 提供两种重置机制：
+布隆过滤器只增不减，随着时间推移需要定期重置并重新预热。frameworkJava 提供两种重置机制：
 
 - **主方案（XXL-JOB）**：由 `ResetBloomFilterJobHandler` 负责，每日凌晨 4 点由 XXL-JOB 调度中心触发。使用 Redisson 分布式锁保证多实例下只有一个节点执行，重置后自动全量预热 C 端用户数据。调度中心配置参考：
   ```

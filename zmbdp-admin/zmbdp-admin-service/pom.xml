@@ -6,16 +6,16 @@
     <parent>
         <groupId>com.zmbdp</groupId>
         <artifactId>zmbdp-admin</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>1.0</version>
     </parent>
 
     <groupId>com.zmbdp</groupId>
     <artifactId>zmbdp-admin-service</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -76,56 +76,92 @@
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-cache</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-admin-api</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-core</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-redis</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-security</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-rabbitmq</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-log</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-monitor</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <!-- XXL-JOB 分布式定时任务 -->
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-xxljob</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- ============ AI 模块新增依赖（按设计文档 7.1.4.4） ============ -->
+        <!-- 幂等性注解（B端配置修改接口需防重） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-idempotent</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- 限流注解（B端接口需限流） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-ratelimit</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- 数据权限（B端知识库管理需数据权限隔离） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-datapermission</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- 雪花算法 ID（实体 ID 生成） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-snowflake</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- Feign 调用 chat-service（KnowledgeApi/AiConfigApi/StatisticsApi/ToolApi/FeedbackApi/OperationLogApi） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-chat-api</artifactId>
+            <version>1.0</version>
         </dependency>
 
     </dependencies>
@@ -171,6 +207,10 @@
                                 <dockerFileDir>${project.basedir}</dockerFileDir>
                             </build>
                             <run>
+                                <network>
+                                    <mode>custom</mode>
+                                    <name>${docker.network.name}</name>
+                                </network>
                                 <env>
                                     <NACOS_ADDR>${nacos.addr}</NACOS_ADDR>
                                     <RUN_ENV>${runenv}</RUN_ENV>

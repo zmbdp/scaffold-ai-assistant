@@ -29,7 +29,7 @@ services:
     ]
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: mysql --user=zmbdpprd -h127.0.0.1 --password='Hf@173503494' -e "SELECT 1;"
       start_period: 30s
@@ -60,7 +60,7 @@ services:
     command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "redis-cli","-p","6380", "ping" ]
       start_period: 3s
@@ -84,7 +84,7 @@ services:
     command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "redis-cli","-p","6381", "ping" ]
       start_period: 3s
@@ -110,7 +110,7 @@ services:
     command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "redis-cli","-p","6382", "ping" ]
       start_period: 3s
@@ -148,7 +148,7 @@ services:
       - "9855:9855"
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       scaffold-ai-assistant-mysql-master:
         condition: service_healthy
@@ -189,7 +189,7 @@ services:
       - "9857:9857"
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       scaffold-ai-assistant-mysql-master:
         condition: service_healthy
@@ -228,7 +228,7 @@ services:
       - ../data/scaffold-ai-assistantdata/rabbitmq01/log:/var/log/rabbitmq
       - ../data/scaffold-ai-assistantdata/rabbitmq01/data:/var/lib/rabbitmq
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "rabbitmqctl", "status" ]
       interval: 10s
@@ -243,7 +243,7 @@ services:
     container_name: scaffold-ai-assistant-web-prd01
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     ports:
       - "8666:80"
     volumes:
@@ -282,7 +282,7 @@ services:
       - ../data/scaffold-ai-assistantdata/skywalking/oap/logs:/skywalking/logs
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       scaffold-ai-assistant-mysql-master:
         condition: service_healthy
@@ -308,7 +308,7 @@ services:
       SW_ZIPKIN_ADDRESS: http://scaffold-ai-assistant-skywalking-oap:9412
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       scaffold-ai-assistant-skywalking-oap:
         condition: service_healthy
@@ -339,7 +339,7 @@ services:
     restart: always
     # Prd 环境：服务部署在 Docker 容器，使用 Docker 网络通信
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy" ]
       interval: 10s
@@ -368,7 +368,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       - scaffold-ai-assistant-prometheus
     healthcheck:
@@ -395,7 +395,7 @@ services:
       - '--storage.path=/alertmanager'
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     healthcheck:
       test: [ "CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy" ]
       interval: 10s
@@ -424,7 +424,7 @@ services:
       - ../data/scaffold-ai-assistantdata/xxljob/logs:/data/applogs
     restart: always
     networks:
-      - scaffold-ai-assistant_network_prd
+      - network_prd
     depends_on:
       scaffold-ai-assistant-mysql-master:
         condition: service_healthy
@@ -439,5 +439,78 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ==================== Milvus 向量数据库（standalone 模式，生产单节点） ====================
+  # Milvus 依赖 etcd（元数据存储）和 minio（对象存储），三者必须一起部署
+  # 镜像版本与 milvus-sdk-java 2.4.5 对齐
+  scaffold-ai-assistant-milvus-etcd:
+    container_name: scaffold-ai-assistant-milvus-etcd
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ../data/scaffold-ai-assistantdata/milvus/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    restart: always
+    networks:
+      - network_prd
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-milvus-minio:
+    container_name: scaffold-ai-assistant-milvus-minio
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ../data/scaffold-ai-assistantdata/milvus/minio:/minio_data
+    command: minio server /minio_data
+    restart: always
+    networks:
+      - network_prd
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scaffold-ai-assistant-milvus:
+    container_name: scaffold-ai-assistant-milvus
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/zmbdp-infra/milvus:v2.4.5
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: scaffold-ai-assistant-milvus-etcd:2379
+      MINIO_ADDRESS: scaffold-ai-assistant-milvus-minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - ../data/scaffold-ai-assistantdata/milvus/milvus:/var/lib/milvus
+    depends_on:
+      - scaffold-ai-assistant-milvus-etcd
+      - scaffold-ai-assistant-milvus-minio
+    restart: always
+    networks:
+      - network_prd
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
-  scaffold-ai-assistant_network_prd:
+  network_prd:

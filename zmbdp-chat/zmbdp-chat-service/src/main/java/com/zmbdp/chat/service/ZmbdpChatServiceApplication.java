@@ -1,9 +1,10 @@
 package com.zmbdp.chat.service;
 
+import com.zmbdp.admin.api.config.feign.ArgumentServiceApi;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 
 /**
  * chat 服务启动类
@@ -11,8 +12,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * @author 稚名不带撇
  */
 @Slf4j
-@EnableScheduling
 @SpringBootApplication
+@EnableFeignClients(clients = {
+        ArgumentServiceApi.class
+})
 public class ZmbdpChatServiceApplication {
 
     /**

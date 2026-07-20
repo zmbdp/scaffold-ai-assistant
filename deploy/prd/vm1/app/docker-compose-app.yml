@@ -4,7 +4,7 @@ services:
   scaffold-ai-assistant-admin:
     build:
       context: service/admin
-    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-admin-service:1.0-SNAPSHOT
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-admin-service:1.0
     container_name: scaffold-ai-assistant-admin-prd
     ports:
       - "18081:18081"
@@ -16,7 +16,7 @@ services:
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
     networks:
-      scaffold-ai-assistant_network_prd:
+      network_prd:
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:18081/actuator/health" ]
       interval: 30s
@@ -32,7 +32,7 @@ services:
       context: service/file
     ports:
       - "18082:18082"
-    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-file-service:1.0-SNAPSHOT
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-file-service:1.0
     container_name: scaffold-ai-assistant-file-prd
     environment:
       RUN_ENV: prd
@@ -42,7 +42,7 @@ services:
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
     networks:
-      scaffold-ai-assistant_network_prd:
+      network_prd:
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:18082/actuator/health" ]
       interval: 30s
@@ -58,7 +58,7 @@ services:
       context: service/gateway
     ports:
       - "10030:10030"
-    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-gateway:1.0-SNAPSHOT
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-gateway:1.0
     container_name: scaffold-ai-assistant-gateway-prd
     environment:
       RUN_ENV: prd
@@ -68,7 +68,7 @@ services:
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
     networks:
-      scaffold-ai-assistant_network_prd:
+      network_prd:
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:10030/actuator/health" ]
       interval: 30s
@@ -84,7 +84,7 @@ services:
       context: service/portal
     ports:
       - "18083:18083"
-    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-portal-service:1.0-SNAPSHOT
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-portal-service:1.0
     container_name: scaffold-ai-assistant-portal-prd
     environment:
       RUN_ENV: prd
@@ -94,7 +94,7 @@ services:
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
     networks:
-      scaffold-ai-assistant_network_prd:
+      network_prd:
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:18083/actuator/health" ]
       interval: 30s
@@ -110,7 +110,7 @@ services:
       context: service/chat
     ports:
       - "18084:18084"
-    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-chat-service:1.0-SNAPSHOT
+    image: crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com/scaffold-ai-assistant_zmbdp/zmbdp-chat-service:1.0
     container_name: scaffold-ai-assistant-chat-prd
     environment:
       RUN_ENV: prd
@@ -119,9 +119,11 @@ services:
       JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-chat -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx512m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
-      - /data/scaffold-ai-assistant:/knowledge:ro  # 挂载知识库目录（供 Agent 工具读取项目源码，只读）
+      # 挂载 frameworkjava 脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取
+      # 服务器上需将 frameworkjava 脚手架放在 /data/scaffold-ai-assistant/frameworkjava
+      - /data/scaffold-ai-assistant/frameworkjava:/knowledge:ro
     networks:
-      scaffold-ai-assistant_network_prd:
+      network_prd:
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:18084/actuator/health" ]
       interval: 30s
@@ -133,4 +135,4 @@ services:
         max-size: "10m"
         max-file: "3"
 networks:
-  scaffold-ai-assistant_network_prd:
+  network_prd:

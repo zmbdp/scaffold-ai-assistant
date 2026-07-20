@@ -1,18 +1,18 @@
--- # 1、初始化数据库：创建nacos外接数据库scaffold-ai-assistant_nacos_prd和脚手架业务数据库scaffold-ai-assistant_prd
--- # 2、创建用户，用户名：zmbdpprd 密码：Hf@173503494
--- # 3、授予zmbdpprd用户特定权限
-
-CREATE database if NOT EXISTS `scaffold-ai-assistant_nacos_prd` default character set utf8mb4 collate utf8mb4_general_ci;
-CREATE database if NOT EXISTS `scaffold-ai-assistant_prd` default character set utf8mb4 collate utf8mb4_general_ci;
-CREATE database if NOT EXISTS `scaffold-ai-assistant_xxljob_prd` default character set utf8mb4 collate utf8mb4_general_ci;
+-- 创建数据库
+CREATE DATABASE IF NOT EXISTS `scaffold-ai-assistant_nacos_prd` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE DATABASE IF NOT EXISTS `scaffold-ai-assistant_prd` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE DATABASE IF NOT EXISTS `scaffold-ai-assistant_xxljob_prd` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE DATABASE IF NOT EXISTS `scaffold-ai-assistant_skywalking_prd` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-CREATE USER 'zmbdpprd'@'%' IDENTIFIED BY 'Hf@173503494';
-grant replication slave, replication client on *.* to 'zmbdpprd'@'%';
+-- 创建用户（不存在才创建，存在则更新密码）
+CREATE USER IF NOT EXISTS 'zmbdpprd'@'%' IDENTIFIED BY 'Hf@173503494';
+ALTER USER 'zmbdpprd'@'%' IDENTIFIED BY 'Hf@173503494';
 
-GRANT ALL PRIVILEGES ON scaffold-ai-assistant_nacos_prd.* TO  'zmbdpprd'@'%';
-GRANT ALL PRIVILEGES ON scaffold-ai-assistant_prd.* TO  'zmbdpprd'@'%';
-GRANT ALL PRIVILEGES ON scaffold-ai-assistant_xxljob_prd.* TO  'zmbdpprd'@'%';
-GRANT ALL PRIVILEGES ON scaffold-ai-assistant_skywalking_prd.* TO 'zmbdpprd'@'%';
+-- 授权（不需要 CDC 的话删掉 replication 那行）
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'zmbdpprd'@'%';
+GRANT ALL PRIVILEGES ON `scaffold-ai-assistant_nacos_prd`.* TO 'zmbdpprd'@'%';
+GRANT ALL PRIVILEGES ON `scaffold-ai-assistant_prd`.* TO 'zmbdpprd'@'%';
+GRANT ALL PRIVILEGES ON `scaffold-ai-assistant_xxljob_prd`.* TO 'zmbdpprd'@'%';
+GRANT ALL PRIVILEGES ON `scaffold-ai-assistant_skywalking_prd`.* TO 'zmbdpprd'@'%';
 
 FLUSH PRIVILEGES;
