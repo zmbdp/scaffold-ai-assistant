@@ -13,8 +13,8 @@ import java.util.List;
  * <p>
  * <b>二级缓存设计</b>：
  * <ul>
- *     <li>数据存储：Redis List（key={@code ai:chat:memory:{sessionId}}，TTL=7天，每会话最多100条）</li>
- *     <li>L1 Caffeine：key={@code CHAT_MEMORY:ai:chat:memory:{sessionId}}，TTL=5分钟，最大1000条</li>
+ *     <li>数据存储：Redis List（key = {@code ai:chat:memory:{sessionId}}，TTL=7天，每会话最多100条）</li>
+ *     <li>L1 Caffeine：key = {@code CHAT_MEMORY:ai:chat:memory:{sessionId}}，TTL=5分钟，最大1000条</li>
  *     <li>失效策略：addMessage/clearHistory 通过 MQ 广播删 L1 Caffeine（invalidateL1Only），
  *         不删 Redis List（数据存储，addMessage 通过 lPush 已更新为最新）</li>
  * </ul>

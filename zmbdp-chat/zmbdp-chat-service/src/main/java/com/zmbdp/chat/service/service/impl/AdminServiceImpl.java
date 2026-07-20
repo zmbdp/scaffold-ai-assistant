@@ -361,9 +361,7 @@ public class AdminServiceImpl implements IAdminService {
                 dto.getTemperature(), dto.getMaxTokens(), dto.getTopK(), dto.getEnableRag(), dto.getEnableTools());
 
         // 失效整个 AI_CONFIG 缓存空间（删 L2 Redis 通配符 key + 广播删所有实例 L1 Caffeine）
-        cacheInvalidateProducer.invalidateAll(
-                AiCacheConstants.AI_CONFIG,
-                AiCacheConstants.AI_CONFIG_REDIS_PREFIX + "*");
+        cacheInvalidateProducer.invalidateAll(AiCacheConstants.AI_CONFIG, AiCacheConstants.AI_CONFIG_REDIS_PREFIX + "*");
     }
 
     /**
