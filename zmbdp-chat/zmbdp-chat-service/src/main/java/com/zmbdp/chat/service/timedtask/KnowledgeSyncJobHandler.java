@@ -108,8 +108,8 @@ public class KnowledgeSyncJobHandler {
         String param = XxlJobHelper.getJobParam();
         boolean force = "true".equalsIgnoreCase(param);
 
-        XxlJobHelper.log("[XXL-JOB] 知识同步开始：force={}", force);
-        log.info("[XXL-JOB] 知识同步开始：force={}", force);
+        XxlJobHelper.log("[XXL-JOB] 知识同步开始：force = {}", force);
+        log.info("[XXL-JOB] 知识同步开始：force = {}", force);
 
         try {
             SyncResultVO result = knowledgeLoaderService.syncKnowledge(force);
@@ -144,8 +144,8 @@ public class KnowledgeSyncJobHandler {
         int retentionDays = parseRetentionDays(XxlJobHelper.getJobParam(), DEFAULT_HISTORY_RETENTION_DAYS);
         LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
 
-        XxlJobHelper.log("[XXL-JOB] 清理过期对话历史开始：retentionDays={}, cutoff={}", retentionDays, cutoff);
-        log.info("[XXL-JOB] 清理过期对话历史开始：retentionDays={}, cutoff={}", retentionDays, cutoff);
+        XxlJobHelper.log("[XXL-JOB] 清理过期对话历史开始：retentionDays = {}, cutoff = {}", retentionDays, cutoff);
+        log.info("[XXL-JOB] 清理过期对话历史开始：retentionDays = {}, cutoff = {}", retentionDays, cutoff);
 
         try {
             LambdaQueryWrapper<SysAiConversation> wrapper = new LambdaQueryWrapper<>();
@@ -178,8 +178,8 @@ public class KnowledgeSyncJobHandler {
         int retentionDays = parseRetentionDays(XxlJobHelper.getJobParam(), DEFAULT_LOG_RETENTION_DAYS);
         LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
 
-        XxlJobHelper.log("[XXL-JOB] 清理过期操作日志开始：retentionDays={}, cutoff={}", retentionDays, cutoff);
-        log.info("[XXL-JOB] 清理过期操作日志开始：retentionDays={}, cutoff={}", retentionDays, cutoff);
+        XxlJobHelper.log("[XXL-JOB] 清理过期操作日志开始：retentionDays = {}, cutoff = {}", retentionDays, cutoff);
+        log.info("[XXL-JOB] 清理过期操作日志开始：retentionDays = {}, cutoff = {}", retentionDays, cutoff);
 
         try {
             LambdaQueryWrapper<SysAiOperationLog> wrapper = new LambdaQueryWrapper<>();
@@ -213,7 +213,7 @@ public class KnowledgeSyncJobHandler {
             int days = Integer.parseInt(param.trim());
             return days > 0 ? days : defaultDays;
         } catch (NumberFormatException e) {
-            log.warn("[XXL-JOB] 保留天数参数解析失败，使用默认值：param={}, default={}", param, defaultDays);
+            log.warn("[XXL-JOB] 保留天数参数解析失败，使用默认值：param = {}, default = {}", param, defaultDays);
             return defaultDays;
         }
     }

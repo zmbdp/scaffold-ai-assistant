@@ -5,6 +5,7 @@ import com.zmbdp.chat.api.chat.domain.dto.ChatStreamReqDTO;
 import com.zmbdp.chat.service.config.ModelConfig;
 import com.zmbdp.chat.service.config.ModelProperties;
 import com.zmbdp.chat.service.service.IModelService;
+import com.zmbdp.common.core.utils.BeanCopyUtil;
 import com.zmbdp.common.domain.exception.ServiceException;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -324,17 +325,7 @@ public class ModelServiceImpl implements IModelService {
      */
     @Override
     public List<ModelVO> listModels() {
-        List<ModelVO> list = new ArrayList<>(modelConfigs.size());
-        for (ModelConfig config : modelConfigs) {
-            ModelVO vo = new ModelVO();
-            vo.setName(config.getName());
-            vo.setProvider(config.getProvider());
-            vo.setType(config.getType());
-            vo.setCapabilities(config.getCapabilities());
-            vo.setEnabled(config.getEnabled());
-            list.add(vo);
-        }
-        return list;
+        return BeanCopyUtil.copyListProperties(modelConfigs, ModelVO.class);
     }
 
     /*=============================================    私有方法    =============================================*/
