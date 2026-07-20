@@ -29,7 +29,7 @@ public class ModelConfig implements Serializable {
     private String type;
 
     /**
-     * 模型名称（如 deepseek-v4-flash、qwen-vl-max）
+     * 模型名称（如 deepseek-v4-flash、qwen-vl-plus）
      */
     private String name;
 

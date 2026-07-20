@@ -10,6 +10,8 @@ import com.zmbdp.chat.service.service.IKnowledgeLoaderService;
 import com.zmbdp.chat.service.service.IModelService;
 import com.zmbdp.chat.service.service.IVectorStoreService;
 import com.zmbdp.common.core.utils.FileUtil;
+import com.zmbdp.common.domain.domain.ResultCode;
+import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.redis.service.RedissonLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -17,6 +19,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -65,42 +68,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
-
-    /**
-     * 知识源 mapper
-     */
-    @Autowired
-    private SysAiKnowledgeSourceMapper sysAiKnowledgeSourceMapper;
-
-    /**
-     * 文档 mapper
-     */
-    @Autowired
-    private SysAiDocumentMapper sysAiDocumentMapper;
-
-    /**
-     * 向量存储服务
-     */
-    @Autowired
-    private IVectorStoreService vectorStoreService;
-
-    /**
-     * 模型管理服务
-     */
-    @Autowired
-    private IModelService modelService;
-
-    /**
-     * Redisson 分布式锁服务
-     */
-    @Autowired
-    private RedissonLockService redissonLockService;
-
-    /**
-     * 知识库根路径（从 Nacos {@code knowledge.base-path} 读取）
-     */
-    @Value("${knowledge.base-path:}")
-    private String knowledgeBasePath;
 
     /**
      * 分布式锁 key 前缀（按知识源粒度加锁）
@@ -187,6 +154,42 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      */
     private static final String META_CREATE_TIME = "create_time";
 
+    /**
+     * 知识源 mapper
+     */
+    @Autowired
+    private SysAiKnowledgeSourceMapper sysAiKnowledgeSourceMapper;
+
+    /**
+     * 文档 mapper
+     */
+    @Autowired
+    private SysAiDocumentMapper sysAiDocumentMapper;
+
+    /**
+     * 向量存储服务
+     */
+    @Autowired
+    private IVectorStoreService vectorStoreService;
+
+    /**
+     * 模型管理服务
+     */
+    @Autowired
+    private IModelService modelService;
+
+    /**
+     * Redisson 分布式锁服务
+     */
+    @Autowired
+    private RedissonLockService redissonLockService;
+
+    /**
+     * 知识库根路径（从 Nacos {@code knowledge.base-path} 读取）
+     */
+    @Value("${knowledge.base-path:}")
+    private String knowledgeBasePath;
+
     /*=============================================    内部调用    =============================================*/
 
     /**
@@ -264,7 +267,7 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             return new ArrayList<>();
         }
         Map<String, Object> metadata = document.getMetadata();
-        String sourceType = metadata != null ? (String) metadata.get(META_SOURCE_TYPE) : null;
+        String sourceType = !metadata.isEmpty() ? (String) metadata.get(META_SOURCE_TYPE) : null;
         if (sourceType == null) {
             sourceType = TYPE_DOC;
         }
@@ -282,7 +285,7 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         List<Document> result = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             // 复制原 metadata，并补充 chunk_index
-            Map<String, Object> chunkMetadata = metadata != null ? new HashMap<>(metadata) : new HashMap<>();
+            Map<String, Object> chunkMetadata = !metadata.isEmpty() ? new HashMap<>(metadata) : new HashMap<>();
             chunkMetadata.put(META_CHUNK_INDEX, i);
             chunkMetadata.put(META_CREATE_TIME, System.currentTimeMillis());
             result.add(new Document(chunks.get(i), chunkMetadata));
@@ -345,6 +348,88 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         result.setDuration(System.currentTimeMillis() - startTime);
         log.info("知识同步完成：{}", result);
         return result;
+    }
+
+    /**
+     * 上传单个文档到指定知识源
+     * <p>
+     * 将文件内容保存到知识源 path 目录下，并立即对该文件执行分块、向量化、写入 Milvus
+     * （复用 {@link #processAddedFile} 逻辑），无需等待定时同步任务。
+     * <p>
+     * <b>执行流程</b>：
+     * <ol>
+     *     <li>校验知识源存在且 enabled=1</li>
+     *     <li>拼接完整文件路径：{@code resolveSourcePath(source.path) + File.separator + fileName}</li>
+     *     <li>校验文件不存在（避免覆盖已有文件）</li>
+     *     <li>保存文件内容到磁盘（自动创建父目录）</li>
+     *     <li>调用 {@link #processAddedFile} 处理新文件（读内容→算哈希→分块→插 MySQL→写 Milvus）</li>
+     *     <li>返回新插入的 {@link SysAiDocument}（含生成的 ID）</li>
+     * </ol>
+     * <p>
+     * <b>失败回滚</b>：若 Embedding 或 Milvus 写入失败，{@link #processAddedFile} 内部会删除
+     * sys_ai_document 记录，但磁盘文件保留（便于用户排查后重新上传或下次同步重试）。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param fileName          文件名（含扩展名，如 ADD_NEW_MODULE.md）
+     * @param content           文件文本内容
+     * @return 新插入的文档记录（含生成的 ID、version=1、status=ACTIVE）
+     * @throws com.zmbdp.common.domain.exception.ServiceException 知识源不存在或未启用、文件已存在
+     */
+    @Override
+    public SysAiDocument uploadDocument(Long knowledgeSourceId, String fileName, String content) {
+        // 1. 校验知识源存在
+        if (knowledgeSourceId == null) {
+            throw new ServiceException("知识源ID不能为空", ResultCode.INVALID_PARA.getCode());
+        }
+        if (!StringUtils.hasText(fileName)) {
+            throw new ServiceException("文件名不能为空", ResultCode.INVALID_PARA.getCode());
+        }
+        SysAiKnowledgeSource source = sysAiKnowledgeSourceMapper.selectById(knowledgeSourceId);
+        if (source == null) {
+            throw new ServiceException(ResultCode.AI_KNOWLEDGE_SOURCE_NOT_FOUND);
+        }
+        if (source.getEnabled() == null || source.getEnabled() != 1) {
+            throw new ServiceException("知识源未启用，无法上传文档：sourceId = " + knowledgeSourceId,
+                    ResultCode.INVALID_PARA.getCode());
+        }
+        // 2. 拼接完整文件路径（复用 resolveSourcePath 处理相对/绝对路径）
+        String sourcePath = resolveSourcePath(source.getPath());
+        // 规范化文件名，防止路径穿越（如 ../etc/passwd）
+        String safeFileName = fileName.replace('\\', '/');
+        if (safeFileName.contains("/")) {
+            // 取最后一段作为文件名，防止用户传入相对路径
+            safeFileName = safeFileName.substring(safeFileName.lastIndexOf('/') + 1);
+        }
+        if (!StringUtils.hasText(safeFileName)) {
+            throw new ServiceException("文件名不合法：", ResultCode.INVALID_PARA.getCode());
+        }
+        String filePath = sourcePath + File.separator + safeFileName;
+        // 3. 校验文件不存在（避免覆盖已有文件）
+        if (FileUtil.exist(filePath)) {
+            throw new ServiceException("文件已存在，请删除后重新上传或修改文件名：" + safeFileName,
+                    ResultCode.INVALID_PARA.getCode());
+        }
+        // 4. 保存文件到磁盘（touch 自动创建父目录，writeUtf8String 写入内容）
+        try {
+            FileUtil.touch(filePath);
+            FileUtil.writeUtf8String(content, filePath);
+            log.info("文件已保存到磁盘：path = {}, size = {} 字符", filePath, content.length());
+        } catch (Exception e) {
+            log.error("保存文件到磁盘失败：path = {}", filePath, e);
+            throw new ServiceException("保存文件失败：" + e.getMessage(), ResultCode.INVALID_PARA.getCode());
+        }
+        // 5. 调用 processAddedFile 处理新文件（读内容→算哈希→分块→插 MySQL→写 Milvus）
+        File file = new File(filePath);
+        try {
+            SysAiDocument document = processAddedFile(source, file);
+            log.info("文档上传处理完成：knowledgeSourceId = {}, fileName = {}, documentId = {}",
+                    knowledgeSourceId, safeFileName, document.getId());
+            return document;
+        } catch (Exception e) {
+            // processAddedFile 内部已回滚 sys_ai_document 记录；磁盘文件保留，便于下次同步重试
+            log.error("文档上传处理失败（磁盘文件已保留，下次同步会重试）：path = {}", filePath, e);
+            throw new ServiceException("文档向量化失败：" + e.getMessage(), ResultCode.INVALID_PARA.getCode());
+        }
     }
 
     /*=============================================    私有方法    =============================================*/
@@ -477,8 +562,9 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      *
      * @param source 知识源
      * @param file   文件
+     * @return 新插入的 sys_ai_document 记录（含生成的 ID）
      */
-    private void processAddedFile(SysAiKnowledgeSource source, File file) {
+    private SysAiDocument processAddedFile(SysAiKnowledgeSource source, File file) {
         String content = FileUtil.readUtf8String(file);
         String hash = calculateSha256(content);
 
@@ -509,6 +595,7 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
                 vectorStoreService.addDocuments(chunks);
             }
             log.info("新增文件处理完成：path = {}, chunkCount = {}", file.getAbsolutePath(), chunks.size());
+            return document;
         } catch (Exception e) {
             // Embedding 或 Milvus 写入失败：回滚 sys_ai_document 记录，避免 DB 有记录但 Milvus 无向量的数据不一致
             // 下次同步时该文件会被重新识别为"新增"（因 DB 记录已删除），重新尝试 Embedding + 写入
@@ -648,23 +735,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             return new ArrayList<>();
         }
         // 按知识源类型确定扩展名
-        String[] extensions;
-        switch (sourceType) {
-            case TYPE_DOC:
-                extensions = new String[]{"md", "markdown"};
-                break;
-            case TYPE_JAVADOC:
-                extensions = new String[]{"html", "htm"};
-                break;
-            case TYPE_CONFIG:
-                extensions = new String[]{"yaml", "yml", "properties"};
-                break;
-            case TYPE_CODE:
-                extensions = new String[]{"java"};
-                break;
-            default:
-                extensions = new String[]{"md"};
-        }
+        String[] extensions = switch (sourceType) {
+            case TYPE_DOC -> new String[]{"md", "markdown"};
+            case TYPE_JAVADOC -> new String[]{"html", "htm"};
+            case TYPE_CONFIG -> new String[]{"yaml", "yml", "properties"};
+            case TYPE_CODE -> new String[]{"java"};
+            default -> new String[]{"md"};
+        };
         return FileUtil.loopFiles(dir, file -> {
             if (!file.isFile()) {
                 return false;
@@ -822,13 +899,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         String[] lines = content.split("\n");
         StringBuilder currentSection = new StringBuilder();
         for (String line : lines) {
-            if (line.trim().startsWith("#") && currentSection.length() > 0) {
+            if (line.trim().startsWith("#") && !currentSection.isEmpty()) {
                 chunks.addAll(splitBySize(currentSection.toString(), chunkSize, chunkOverlap));
                 currentSection = new StringBuilder();
             }
             currentSection.append(line).append("\n");
         }
-        if (currentSection.length() > 0) {
+        if (!currentSection.isEmpty()) {
             chunks.addAll(splitBySize(currentSection.toString(), chunkSize, chunkOverlap));
         }
         return chunks;
@@ -856,13 +933,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             boolean isMethodSignature = (trimmed.startsWith("public ") || trimmed.startsWith("private ")
                     || trimmed.startsWith("protected "))
                     && trimmed.contains("(") && !trimmed.contains("class ") && !trimmed.contains("interface ");
-            if (isMethodSignature && current.length() > 0) {
+            if (isMethodSignature && !current.isEmpty()) {
                 chunks.addAll(splitBySize(current.toString(), chunkSize, chunkOverlap));
                 current = new StringBuilder();
             }
             current.append(line).append("\n");
         }
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             chunks.addAll(splitBySize(current.toString(), chunkSize, chunkOverlap));
         }
         return chunks;
@@ -908,13 +985,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             // 顶层配置节：非空行、不以空格/# 开头、含冒号
             boolean isTopLevel = !line.isEmpty() && !Character.isWhitespace(line.charAt(0))
                     && !line.startsWith("#") && !line.startsWith("//") && line.contains(":");
-            if (isTopLevel && current.length() > 0) {
+            if (isTopLevel && !current.isEmpty()) {
                 chunks.add(current.toString());
                 current = new StringBuilder();
             }
             current.append(line).append("\n");
         }
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             chunks.add(current.toString());
         }
         // 若分块过大，按 chunkSize 二次切分

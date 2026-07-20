@@ -114,7 +114,9 @@ services:
       JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-chat -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx512m -Dspring.cloud.nacos.discovery.ip=你的云服务器2内网ip/你的虚拟机2内网ip
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
-      - /data/scaffold-ai-assistant:/knowledge:ro  # 挂载知识库目录（供 Agent 工具读取项目源码，只读）
+      # 挂载 frameworkjava 脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取
+      # 服务器上需将 frameworkjava 脚手架放在 /opt/scaffold-ai-assistant/frameworkjava
+      - /opt/scaffold-ai-assistant/frameworkjava:/knowledge:ro
     networks:
       network_prd:
     healthcheck:

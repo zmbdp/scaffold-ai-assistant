@@ -38,7 +38,7 @@ spring:
         default-model: true
         capabilities: [TEXT]
       - type: TEXT_AND_IMAGE
-        name: qwen-vl-max
+        name: qwen-vl-plus
         provider: dashscope
         enabled: true
         default-model: true

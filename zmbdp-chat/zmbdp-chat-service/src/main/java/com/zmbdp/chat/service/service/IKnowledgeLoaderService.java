@@ -1,6 +1,7 @@
 package com.zmbdp.chat.service.service;
 
 import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
+import com.zmbdp.chat.service.domain.entity.SysAiDocument;
 import org.springframework.ai.document.Document;
 
 import java.util.List;
@@ -78,4 +79,31 @@ public interface IKnowledgeLoaderService {
      * @return 同步结果统计
      */
     SyncResultVO syncKnowledge(boolean force);
+
+    /**
+     * 上传单个文档到指定知识源
+     * <p>
+     * 将文件内容保存到知识源 path 目录下，并立即对该文件执行分块、向量化、写入 Milvus
+     * （复用 {@code processAddedFile} 逻辑），无需等待定时同步任务。
+     * <p>
+     * <b>执行流程</b>：
+     * <ol>
+     *     <li>校验知识源存在且 enabled=1</li>
+     *     <li>拼接完整文件路径：{@code resolveSourcePath(source.path) + File.separator + fileName}</li>
+     *     <li>校验文件不存在（避免覆盖已有文件）</li>
+     *     <li>保存文件内容到磁盘（自动创建父目录）</li>
+     *     <li>调用 {@code processAddedFile} 处理新文件（读内容→算哈希→分块→插 MySQL→写 Milvus）</li>
+     *     <li>返回新插入的 {@link SysAiDocument}（含生成的 ID）</li>
+     * </ol>
+     * <p>
+     * <b>失败回滚</b>：若 Embedding 或 Milvus 写入失败，{@code processAddedFile} 内部会删除
+     * sys_ai_document 记录，但磁盘文件保留（便于用户排查后重新上传）。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param fileName          文件名（含扩展名，如 ADD_NEW_MODULE.md）
+     * @param content           文件文本内容
+     * @return 新插入的文档记录（含生成的 ID、version=1、status=ACTIVE）
+     * @throws com.zmbdp.common.domain.exception.ServiceException 知识源不存在、文件已存在、或向量化失败
+     */
+    SysAiDocument uploadDocument(Long knowledgeSourceId, String fileName, String content);
 }

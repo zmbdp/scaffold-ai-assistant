@@ -267,7 +267,7 @@ public class ChatServiceImpl implements IChatService {
      * DashScope 返回 200 OK 但响应体为空。
      * <p>
      * <b>模型切换</b>：在 Nacos 配置 {@code spring.ai.models} 中修改默认视觉模型即可，
-     * 无需改代码。支持 qwen-vl-max、qwen-vl-plus、qwen3.5-omni-plus 等所有 DashScope 视觉/全模态模型。
+     * 无需改代码。支持 qwen-vl-plus、qwen-vl-plus、qwen3.5-omni-plus 等所有 DashScope 视觉/全模态模型。
      *
      * @param request 图文流式对话请求（含用户提问、图片 URL 列表、完整 Prompt）
      * @return SSE 流（每帧为 JSON 字符串）
@@ -403,7 +403,7 @@ public class ChatServiceImpl implements IChatService {
      * 格式参考 OpenAI Chat Completions API：
      * <pre>{@code
      * {
-     *   "model": "qwen-vl-max",
+     *   "model": "qwen-vl-plus",
      *   "messages": [
      *     {"role": "system", "content": "系统提示词"},
      *     {"role": "user", "content": "历史用户提问"},
@@ -424,7 +424,7 @@ public class ChatServiceImpl implements IChatService {
      * <b>多模态消息规则</b>：只有最后一条 user 消息（当前提问）使用数组形式的 content（含 text 和 image_url），
      * 历史消息一律用纯字符串 content，避免历史图片重复发送导致 token 暴涨。
      *
-     * @param modelName  视觉模型名（如 qwen-vl-max）
+     * @param modelName  视觉模型名（如 qwen-vl-plus）
      * @param request    图文对话请求（取 prompt 和 temperature）
      * @param historyMsg 历史消息列表（已过滤空 AssistantMessage）
      * @param imageUrls  清洗后的图片 URL 列表

@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.chat.service.service.INacosConfigService;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -77,7 +78,7 @@ public class CompareConfigTool {
      * @param env2   环境2（dev/test/prd）
      * @return 配置差异对比 JSON；异常时返回错误 JSON
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "对比不同环境的配置差异，参数dataId为配置ID（不带环境后缀，如share-redis），env1和env2为要对比的两个环境（dev/test/prd），工具内部自动拼接 -{env}.yaml。用于排查环境差异问题。"
     )
     public String compareConfig(String dataId, String env1, String env2) {

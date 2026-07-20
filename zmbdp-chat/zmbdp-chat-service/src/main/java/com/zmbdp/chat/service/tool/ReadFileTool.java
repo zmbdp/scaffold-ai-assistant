@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
@@ -64,7 +65,7 @@ public class ReadFileTool {
      * @param filePath 文件绝对路径
      * @return 文件内容字符串；异常时返回 JSON 格式的错误信息
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "读取指定文件的内容，参数filePath为文件绝对路径。用于查看某个类的完整源码实现。"
     )
     public String readFile(String filePath) {

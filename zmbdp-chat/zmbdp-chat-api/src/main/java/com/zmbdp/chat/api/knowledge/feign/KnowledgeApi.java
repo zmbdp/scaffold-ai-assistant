@@ -10,6 +10,7 @@ import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
 import com.zmbdp.common.domain.domain.Result;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,17 +18,18 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 /**
  * 知识库管理远程调用 Api
  * <p>
- * 提供知识源 CRUD、文档管理、知识同步、召回测试等能力。
+ * 提供知识源 CRUD、文档管理、文档上传、知识同步、召回测试等能力。
  * <p>
- * <b>上传文档接口</b>（{@code POST /knowledge/documents/upload}）因涉及 MultipartFile，
- * 由 admin-service 直接代理而非通过 Feign 调用（Feign 对文件上传支持有限），
- * 因此本接口不包含上传方法。
+ * <b>上传文档接口</b>：{@link #uploadDocument} 通过 Feign 传输 MultipartFile
+ * （复用脚手架 FileServiceApi 的成熟模式：{@code consumes = MULTIPART_FORM_DATA_VALUE}）。
  * <p>
  * <b>分页约定</b>：参数统一使用 {@code pageNo}/{@code pageSize}（与脚手架 BasePageReqDTO 字段名一致），
  * 响应统一使用 {@link BasePageVO}（含 totals/totalPages/list 字段）。
@@ -140,4 +142,26 @@ public interface KnowledgeApi {
      */
     @PostMapping("/retrieve-test")
     Result<List<DocumentVO>> retrieveTest(@RequestBody RetrieveReqDTO request);
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 将上传的文件保存到知识源 path 目录下，并立即对该文件执行分块、向量化、写入 Milvus。
+     * <p>
+     * <b>文件限制</b>（与设计文档 08-API 接口设计 一致）：
+     * <ul>
+     *     <li>大小 ≤ 50MB</li>
+     *     <li>扩展名 ∈ {.md, .txt, .html, .java, .py, .xml, .json}</li>
+     * </ul>
+     * <p>
+     * <b>Feign 文件上传</b>：复用脚手架 FileServiceApi 的成熟模式，
+     * {@code consumes = MULTIPART_FORM_DATA_VALUE} 告诉 Feign 使用 multipart/form-data 编码。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件
+     * @return 新插入的文档 VO（含生成的 ID）
+     */
+    @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    Result<KnowledgeDocumentVO> uploadDocument(@RequestParam("knowledgeSourceId") Long knowledgeSourceId,
+                                               @RequestPart("file") MultipartFile file);
 }
