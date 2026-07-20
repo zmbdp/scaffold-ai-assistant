@@ -6,16 +6,16 @@
     <parent>
         <groupId>com.zmbdp</groupId>
         <artifactId>zmbdp-portal</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>1.0</version>
     </parent>
 
     <groupId>com.zmbdp</groupId>
     <artifactId>zmbdp-portal-service</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -70,55 +70,83 @@
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-cache</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-portal-api</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-core</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-redis</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-security</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-admin-api</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-message</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-log</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-monitor</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- ============ AI 模块新增依赖（按设计文档 7.1.4.3） ============ -->
+        <!-- 幂等性注解（C端对话接口需防重） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-idempotent</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- 限流注解（C端 AI 接口需限流，防止滥用） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-ratelimit</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- Feign 调用 chat-service（ChatApi/HistoryApi/FeedbackApi） -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-chat-api</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- WebClient（SSE 流式调用 chat-service） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
     </dependencies>
@@ -164,6 +192,10 @@
                                 <dockerFileDir>${project.basedir}</dockerFileDir>
                             </build>
                             <run>
+                                <network>
+                                    <mode>custom</mode>
+                                    <name>${docker.network.name}</name>
+                                </network>
                                 <env>
                                     <NACOS_ADDR>${nacos.addr}</NACOS_ADDR>
                                     <RUN_ENV>${runenv}</RUN_ENV>

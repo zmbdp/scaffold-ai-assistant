@@ -181,4 +181,3 @@ public class TestLogServiceImpl {
         return Result.success("mq存储-基础测试成功");
     }
 }
-

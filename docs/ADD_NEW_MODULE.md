@@ -1,6 +1,6 @@
 # 新增业务模块指南
 
-本文档说明如何在 scaffold-ai-assistant 中新增一个业务模块。
+本文档说明如何在 frameworkJava 中新增一个业务模块。
 
 ## 模块结构
 
@@ -54,8 +54,8 @@ mkdir -p zmbdp-{module}/zmbdp-{module}-service
 <project>
     <parent>
         <groupId>com.zmbdp</groupId>
-        <artifactId>scaffold-ai-assistant</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <artifactId>frameworkJava</artifactId>
+        <version>1.0</version>
     </parent>
     
     <artifactId>zmbdp-{module}-api</artifactId>

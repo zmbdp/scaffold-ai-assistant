@@ -6,10 +6,12 @@
     <parent>
         <groupId>com.zmbdp</groupId>
         <artifactId>zmbdp-chat</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>1.0</version>
     </parent>
 
+    <groupId>com.zmbdp</groupId>
     <artifactId>zmbdp-chat-service</artifactId>
+    <version>1.0</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -18,6 +20,7 @@
     </properties>
 
     <dependencies>
+        <!-- SpringCloud Alibaba Nacos discovery -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
@@ -29,16 +32,19 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
 
+        <!--是 Spring Cloud 提供的一个引导模块 配置文件的早期加载、配置中心集成-->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bootstrap</artifactId>
         </dependency>
 
+        <!--    启动web项目    -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!--   内置 servlet 服务器是 tomcat     -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-tomcat</artifactId>
@@ -49,10 +55,17 @@
             <artifactId>lombok</artifactId>
         </dependency>
 
+        <!--    测试   -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!--    mysql连接器    -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
         </dependency>
 
         <dependency>
@@ -60,57 +73,124 @@
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>
 
+        <!-- ============ AI 框架依赖（版本由根 pom BOM 管理，不写 version） ============ -->
+        <!-- Spring AI Alibaba DashScope 启动器（通义千问聊天+向量化模型，含 ChatClient/ChatModel/EmbeddingModel 能力） -->
+        <!-- 说明：Spring AI Alibaba 1.0.0.2 的 BOM 中不存在 spring-ai-alibaba-starter 聚合包，直接使用 starter-dashscope 即可 -->
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
         </dependency>
 
+        <!-- ============ 向量数据库依赖 ============ -->
+        <!-- Milvus 向量数据库客户端 -->
         <dependency>
-            <groupId>com.zmbdp</groupId>
-            <artifactId>zmbdp-common-cache</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <groupId>io.milvus</groupId>
+            <artifactId>milvus-sdk-java</artifactId>
         </dependency>
 
+        <!-- ============ 源码解析依赖 ============ -->
+        <!-- JavaParser（Java 源码分块解析，用于 RAG 知识同步） -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-symbol-solver-core</artifactId>
+        </dependency>
+
+        <!-- ============ WebFlux（SSE 流式，chat-service 内部 SSE 端点返回 Flux<String>） ============ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <!-- ============ 脚手架 common 模块（按需引入，version 对齐脚手架现状） ============ -->
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-chat-api</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
+        </dependency>
+
+        <!-- zmbdp-admin-api：ToolRegistryService 通过 Feign 调用 ArgumentServiceApi 查 sys_argument 表 -->
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-admin-api</artifactId>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-core</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-redis</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-security</artifactId>
-            <version>1.0-SNAPSHOT</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.zmbdp</groupId>
-            <artifactId>zmbdp-common-message</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-log</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
 
         <dependency>
             <groupId>com.zmbdp</groupId>
             <artifactId>zmbdp-common-monitor</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-cache</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-idempotent</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-ratelimit</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-snowflake</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-xxljob</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-filter</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-rabbitmq</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zmbdp</groupId>
+            <artifactId>zmbdp-common-message</artifactId>
+            <version>1.0</version>
         </dependency>
 
     </dependencies>
@@ -138,6 +218,7 @@
                 <configuration>
                     <!--指定远程服务器的Docker服务访问地址-->
                     <dockerHost>${dockerhost.addr}</dockerHost>
+                    <!--TODO: 每个环境都得改!!!-->
                     <certPath>${project.basedir}/../../deploy/test/app/config/cert</certPath>
                     <!--指定私有仓库的访问路径-->
                     <pushRegistry>${dockerregistry.url}</pushRegistry>
@@ -156,6 +237,10 @@
                                 <dockerFileDir>${project.basedir}</dockerFileDir>
                             </build>
                             <run>
+                                <network>
+                                    <mode>custom</mode>
+                                    <name>${docker.network.name}</name>
+                                </network>
                                 <env>
                                     <NACOS_ADDR>${nacos.addr}</NACOS_ADDR>
                                     <RUN_ENV>${runenv}</RUN_ENV>
@@ -163,6 +248,8 @@
                                 </env>
                                 <volumes>
                                     <bind>${skywalking.path}</bind>
+                                    <!-- 挂载脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取 -->
+                                    <bind>${knowledge.path}</bind>
                                 </volumes>
                             </run>
                         </image>

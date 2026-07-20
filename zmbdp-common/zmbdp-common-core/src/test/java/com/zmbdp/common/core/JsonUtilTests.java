@@ -125,5 +125,3 @@ public class JsonUtilTests {
         System.out.println(list1);
     }
 }
-
-

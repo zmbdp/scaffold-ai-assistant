@@ -12,7 +12,7 @@
 
     <groupId>com.zmbdp</groupId>
     <artifactId>scaffold-ai-assistant</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <packaging>pom</packaging>
 
@@ -30,8 +30,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>21</java.version>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
 
         <!-- 依赖版本规定 -->
         <spring-boot.version>3.3.3</spring-boot.version>
@@ -60,6 +60,11 @@
 
         <skywalking.path>/opt/scaffold-ai-assistant/deploy/skywalking/skywalking-agent:/opt/skywalking/agent</skywalking.path>
 
+        <!-- 知识库源码挂载路径（test 环境通过 docker-maven-plugin 挂载脚手架源码到容器 /knowledge） -->
+        <!-- 格式：宿主机脚手架路径:/knowledge:ro -->
+        <!-- test 环境服务器上需将 frameworkjava 脚手架放在 /opt/scaffold-ai-assistant/frameworkjava -->
+        <knowledge.path>/opt/scaffold-ai-assistant/frameworkjava:/knowledge:ro</knowledge.path>
+
         <!--测试环境-->
         <runenv>test</runenv>
         <java.opts.default>-Xmx256m -javaagent:/opt/skywalking/agent/skywalking-agent.jar
@@ -81,6 +86,7 @@
 
         <!--docker部署配置-->
         <dockerhost.addr>tcp://你的云服务器外网ip/你的虚拟机外网ip:2376</dockerhost.addr>
+        <docker.network.name>scaffold-ai-assistant_network_${runenv}</docker.network.name>
         <dockerregistry.url>crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com</dockerregistry.url>
         <dockerregistry.namespace>zmbdp-server</dockerregistry.namespace>
         <dockerregistry.username>${env.DOCKER_USERNAME}</dockerregistry.username>

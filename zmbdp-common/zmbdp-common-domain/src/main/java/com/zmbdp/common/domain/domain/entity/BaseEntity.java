@@ -10,7 +10,7 @@ import lombok.Data;
  * @author 稚名不带撇
  */
 @Data
-public class BaseDO {
+public class BaseEntity {
 
     /**
      * id

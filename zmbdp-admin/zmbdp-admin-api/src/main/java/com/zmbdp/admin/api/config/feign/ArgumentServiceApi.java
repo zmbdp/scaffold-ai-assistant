@@ -1,8 +1,12 @@
 package com.zmbdp.admin.api.config.feign;
 
 import com.zmbdp.admin.api.config.domain.dto.ArgumentDTO;
+import com.zmbdp.admin.api.config.domain.dto.ArgumentEditReqDTO;
+import com.zmbdp.common.domain.domain.Result;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
@@ -32,4 +36,16 @@ public interface ArgumentServiceApi {
      */
     @GetMapping("/keys")
     List<ArgumentDTO> getByConfigKeys(@RequestParam("configKeys") List<String> configKeys);
+
+    /**
+     * 编辑参数（更新 sys_argument 表）
+     * <p>
+     * 供 chat-service 的 IAdminService.updateAiConfig / updateToolConfig 远程调用，
+     * 更新运行时可调参数（ai.temperature、ai.tool.*.enabled 等）。
+     *
+     * @param argumentEditReqDTO 编辑参数请求 DTO
+     * @return 更新后的参数主键 id（包装在 Result 中）
+     */
+    @PostMapping("/edit")
+    Result<Long> editArgument(@RequestBody ArgumentEditReqDTO argumentEditReqDTO);
 }

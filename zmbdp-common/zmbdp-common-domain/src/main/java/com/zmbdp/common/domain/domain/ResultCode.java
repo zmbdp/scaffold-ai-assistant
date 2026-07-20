@@ -225,6 +225,92 @@ public enum ResultCode {
      */
     EXCEL_WRITE_FAILED(500021, "Excel 文件写入失败"),
 
+    //---------------------AI 模块业务错误码（从 500022 开始）
+
+    /**
+     * AI 配置未设置（API Key 等配置缺失）
+     */
+    AI_CONFIG_NOT_SET(500022, "AI 配置未设置"),
+
+    /**
+     * AI 服务连接失败（无法连接到 AI 模型服务）
+     */
+    AI_SERVICE_CONNECT_FAILED(500023, "AI 服务连接失败"),
+
+    /**
+     * AI 服务响应超时（AI 模型响应超时）
+     */
+    AI_SERVICE_TIMEOUT(500024, "AI 服务响应超时"),
+
+    /**
+     * 工具调用失败（Agent 工具执行出错）
+     */
+    AI_TOOL_CALL_FAILED(500025, "工具调用失败"),
+
+    /**
+     * 路径不在白名单（文件读取路径不在允许范围）
+     */
+    AI_PATH_NOT_ALLOWED(500026, "路径不在白名单"),
+
+    /**
+     * 文件类型不支持（上传文件类型不在允许列表）
+     */
+    AI_FILE_TYPE_NOT_SUPPORTED(500027, "文件类型不支持"),
+
+    /**
+     * 文件超过大小限制（上传文件超过最大限制）
+     */
+    AI_FILE_TOO_LARGE(500028, "文件超过大小限制"),
+
+    /**
+     * 点踩原因不能为空（feedbackType=DISLIKE 时 dislikeReason 必填）
+     */
+    FEEDBACK_DISLIKE_REASON_REQUIRED(500031, "点踩原因不能为空"),
+
+    /**
+     * 会话不属于当前用户（sessionId 归属校验失败，C 端用户尝试访问/操作他人会话）
+     */
+    SESSION_NOT_BELONG_TO_USER(500032, "会话不属于当前用户"),
+
+    // 403 AI 权限相关
+
+    /**
+     * 无权限访问此资源（用户来源与接口不匹配，Gateway 层）
+     */
+    AI_FORBIDDEN(403000, "无权限访问此资源"),
+
+    /**
+     * 无模型调用权限（未配置该模型的调用权限）
+     */
+    AI_NO_MODEL_PERMISSION(403001, "无模型调用权限"),
+
+    /**
+     * 模型调用配额已用尽（权限配额使用完毕）
+     */
+    AI_QUOTA_EXHAUSTED(403002, "模型调用配额已用尽"),
+
+    /**
+     * 权限已过期（权限有效期已过）
+     */
+    AI_PERMISSION_EXPIRED(403003, "权限已过期"),
+
+    // 404 AI 资源不存在
+
+    /**
+     * 知识源不存在（知识源查询失败）
+     */
+    AI_KNOWLEDGE_SOURCE_NOT_FOUND(404002, "知识源不存在"),
+
+    /**
+     * 文档不存在（文档查询失败）
+     */
+    AI_DOCUMENT_NOT_FOUND(404003, "文档不存在"),
+
+    /**
+     * AI 操作日志不存在（操作日志查询失败）
+     */
+    AI_OPERATION_LOG_NOT_FOUND(404004, "AI 操作日志不存在"),
+
 
     //---------------------枚举占位
     /**

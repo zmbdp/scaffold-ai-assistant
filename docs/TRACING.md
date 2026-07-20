@@ -2,7 +2,7 @@
 
 ## 📖 概述
 
-scaffold-ai-assistant 提供了两种链路追踪方案：
+frameworkJava 提供了两种链路追踪方案：
 
 ### 1. 轻量级 TraceId 方案（推荐用于日志追踪）
 
@@ -257,7 +257,7 @@ traceId: "abc123def456"
 
 ```bash
 cd deploy/dev/app
-docker compose -p scaffold-ai-assistant -f docker-compose-mid.yml up -d scaffold-ai-assistant-skywalking-oap scaffold-ai-assistant-skywalking-ui
+docker compose -p frameworkJava -f docker-compose-mid.yml up -d frameworkJava-skywalking-oap frameworkJava-skywalking-ui
 ```
 
 ### 2. 访问 SkyWalking UI
@@ -315,7 +315,7 @@ COPY target/app.jar /app.jar
 # 启动参数
 ENV JAVA_OPTS="-javaagent:/skywalking-agent/skywalking-agent.jar"
 ENV SW_AGENT_NAME="zmbdp-admin"
-ENV SW_AGENT_COLLECTOR_BACKEND_SERVICES="scaffold-ai-assistant-skywalking-oap:11800"
+ENV SW_AGENT_COLLECTOR_BACKEND_SERVICES="frameworkJava-skywalking-oap:11800"
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app.jar"]
 ```
@@ -369,7 +369,7 @@ SkyWalking 会自动追踪以下组件：
 
 ### 4. 日志关联 TraceId
 
-scaffold-ai-assistant 已集成 SkyWalking Logback 插件，日志会自动关联 TraceId。
+frameworkJava 已集成 SkyWalking Logback 插件，日志会自动关联 TraceId。
 
 **日志格式：**
 
@@ -457,7 +457,7 @@ agent.span_limit_per_segment=${SW_AGENT_SPAN_LIMIT:300}
 
 ```bash
 # 查看 OAP 日志
-docker logs scaffold-ai-assistant-skywalking-oap
+docker logs frameworkJava-skywalking-oap
 
 # 检查 OAP 健康状态
 curl http://localhost:12800/internal/l7check
@@ -535,9 +535,9 @@ agent.sample_n_per_3_secs=1000
 {项目名}-{模块名}
 
 例如：
-- scaffold-ai-assistant-gateway
-- scaffold-ai-assistant-admin
-- scaffold-ai-assistant-portal
+- frameworkJava-gateway
+- frameworkJava-admin
+- frameworkJava-portal
 ```
 
 ### 2. 采样策略

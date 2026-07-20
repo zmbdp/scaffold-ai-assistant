@@ -544,7 +544,7 @@ public class ChatStreamController {
 | message | String | 是 | 用户提问 |
 | sessionId | String | 否 | 会话ID（不传则新建） |
 | prompt | String | 是 | 完整Prompt（含RAG上下文+历史+提问） |
-| model | String | 否 | 模型名称（默认 qwen-max） |
+| model | String | 否 | 模型名称（默认 deepseek-v4-flash） |
 | temperature | Double | 否 | 温度参数（默认 0.7） |
 
 **响应格式**（SSE，与03-C端功能设计.md 3.2.1节、05-Agent工具设计.md 5.3.3节、07-项目架构设计.md 7.2.13节一致）：
@@ -602,7 +602,7 @@ public class ChatWithImageStreamController {
 {
   "message": "三级缓存怎么用？",
   "sessionId": "abc123",
-  "model": "qwen-max",
+  "model": "deepseek-v4-flash",
   "temperature": 0.7,
   "topK": 5
 }
@@ -625,7 +625,7 @@ data: {"chunk": "布隆过滤器、Caffeine本地缓存", "done": false}
 
 data: {"chunk": "和Redis分布式缓存...", "done": false}
 
-data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "model": "qwen-max"}
+data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "model": "deepseek-v4-flash"}
 ```
 
 **调用链路**：portal-service `PortalChatController.streamChat()` → `PortalChatService.streamChat()` → Feign `ChatApi.retrieveContext()`（RAG检索） + WebClient `/chat/completions/stream`（SSE流式调用 chat-service） → chat-service `ChatStreamController.streamChat()` → `IChatService.streamChat()` → Spring AI ChatClient
@@ -689,7 +689,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
         "sessionId": "abc123",
         "lastMessage": "三级缓存怎么用？",
         "timestamp": 1700000000000,
-        "model": "qwen-max",
+        "model": "deepseek-v4-flash",
         "messageCount": 4
       }
     ],
@@ -732,7 +732,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
         "timestamp": 1700000000001,
         "hasImage": false,
         "sources": [...],
-        "model": "qwen-max"
+        "model": "deepseek-v4-flash"
       }
     ]
   }
@@ -778,7 +778,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 | `pageNo`    | Integer | 否   | 页码，默认1                            |
 | `pageSize`  | Integer | 否   | 每页数量，默认20                         |
 | `operationType` | String  | 否   | AI操作类型过滤（CHAT/RETRIEVE/EMBEDDING/RERANK） |
-| `model`     | String  | 否   | 模型名称过滤（如 qwen-max） |
+| `model`     | String  | 否   | 模型名称过滤（如 deepseek-v4-flash） |
 | `status`    | String  | 否   | 调用状态过滤（SUCCESS/FAILED/TIMEOUT） |
 | `startDate` | Long    | 否   | 开始日期（格式：20260712）                 |
 | `endDate`   | Long    | 否   | 结束日期（格式：20260712）                 |
@@ -797,7 +797,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
         "userFrom": "app",
         "conversationId": 1234567890,
         "operationType": "CHAT",
-        "model": "qwen-max",
+        "model": "deepseek-v4-flash",
         "promptTokens": 1200,
         "completionTokens": 350,
         "totalTokens": 1550,
@@ -1145,7 +1145,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
   "code": 200000,
   "errMsg": "操作成功",
   "data": {
-    "defaultModel": "qwen-max",
+    "defaultModel": "deepseek-v4-flash",
     "defaultVisionModel": "qwen-vl-max",
     "temperature": 0.7,
     "maxTokens": 4096,
@@ -1172,7 +1172,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "defaultModel": "qwen-max",
+  "defaultModel": "deepseek-v4-flash",
   "defaultVisionModel": "qwen-vl-max",
   "temperature": 0.5,
   "maxTokens": 4096,
@@ -1208,7 +1208,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
   "errMsg": "操作成功",
   "data": [
     {
-      "name": "qwen-max",
+      "name": "deepseek-v4-flash",
       "provider": "alibaba",
       "type": "text",
       "capabilities": ["text"],
@@ -1239,7 +1239,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ```json
 {
-  "model": "qwen-max",
+  "model": "deepseek-v4-flash",
   "message": "hello"
 }
 ```
@@ -1307,7 +1307,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
     "totalTokenUsage": 3000000,
     "avgLatency": 3200,
     "topModels": [
-      {"model": "qwen-max", "count": 1800},
+      {"model": "deepseek-v4-flash", "count": 1800},
       {"model": "qwen-vl-max", "count": 200}
     ]
   }
@@ -1915,7 +1915,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
     "userFrom": "app",
     "conversationId": 1234567890,
     "operationType": "CHAT",
-    "model": "qwen-max",
+    "model": "deepseek-v4-flash",
     "prompt": "你是脚手架专家AI助手...[检索到的文档上下文]...[用户提问: 三级缓存怎么用？]",
     "response": "三级缓存架构包含布隆过滤器、Caffeine本地缓存和Redis分布式缓存...",
     "toolCalls": [

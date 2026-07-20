@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zmbdp.chat.service.mapper.SysAiOperationLogMapper">
+
+    <!-- 统计 AI 总调用次数 -->
+    <select id="countTotalAiCalls" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_operation_log
+    </select>
+
+    <!-- 统计成功调用次数 -->
+    <select id="countSuccessAiCalls" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_operation_log
+        WHERE status = 'SUCCESS'
+    </select>
+
+    <!-- 统计平均 Token 消耗 -->
+    <select id="avgTokenUsage" resultType="java.lang.Long">
+        SELECT IFNULL(AVG(total_tokens), 0)
+        FROM sys_ai_operation_log
+        WHERE status = 'SUCCESS'
+    </select>
+
+    <!-- 统计总 Token 消耗 -->
+    <select id="sumTotalTokens" resultType="java.lang.Long">
+        SELECT IFNULL(SUM(total_tokens), 0)
+        FROM sys_ai_operation_log
+        WHERE status = 'SUCCESS'
+    </select>
+
+    <!-- 统计平均延迟（毫秒） -->
+    <select id="avgLatency" resultType="java.lang.Long">
+        SELECT IFNULL(AVG(response_time), 0)
+        FROM sys_ai_operation_log
+        WHERE status = 'SUCCESS'
+    </select>
+
+    <!-- 按模型分组统计 Top 模型调用次数 -->
+    <select id="selectTopModels" resultType="com.zmbdp.chat.api.statistics.domain.vo.AiMetricsVO$TopModel">
+        SELECT
+            model,
+            COUNT(*) AS count
+        FROM sys_ai_operation_log
+        WHERE model IS NOT NULL
+          AND model != ''
+        GROUP BY model
+        ORDER BY count DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 查询所有工具调用记录（仅 tool_calls 非空） -->
+    <select id="selectAllToolCallRecords" resultType="com.zmbdp.chat.service.domain.entity.SysAiOperationLog">
+        SELECT id, tool_calls
+        FROM sys_ai_operation_log
+        WHERE tool_calls IS NOT NULL
+          AND tool_calls != ''
+          AND tool_calls != '[]'
+    </select>
+
+    <!-- 按操作类型分组统计 -->
+    <select id="countByOperationType" resultType="java.util.Map">
+        SELECT
+            operation_type AS operationType,
+            COUNT(*) AS count
+        FROM sys_ai_operation_log
+        WHERE operation_type IS NOT NULL
+          AND operation_type != ''
+        GROUP BY operation_type
+        ORDER BY count DESC
+    </select>
+
+</mapper>

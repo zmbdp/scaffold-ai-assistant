@@ -35,7 +35,7 @@ CREATE TABLE `operation_log`
     KEY               `idx_status` (`status`),
     KEY               `idx_module` (`module`),
     KEY               `idx_trace_id` (`trace_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作日志表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '操作日志表';
 
 CREATE TABLE `sys_region`
 (
@@ -4680,7 +4680,50 @@ CREATE TABLE IF NOT EXISTS `sys_ai_knowledge_source` (
     INDEX `idx_last_sync_date` (`last_sync_date`),
     INDEX `idx_create_date` (`create_date`),
     INDEX `idx_update_date` (`update_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI知识源表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI知识源表';
+
+-- 清理脚本内置的 ID 段（9001-9010），保证脚本可重复执行
+DELETE FROM sys_ai_knowledge_source WHERE id BETWEEN 9001 AND 9010;
+
+-- 插入知识源数据
+INSERT INTO sys_ai_knowledge_source (id, name, path, type, enabled, chunk_size, chunk_overlap, last_sync_date, create_date, update_date) VALUES
+-- ===== doc 类型：脚手架使用文档（每个文件一条，便于精细化管理） =====
+-- 指南类文档（1500/200，需完整上下文）
+(9001, '新增业务模块指南',     'docs/ADD_NEW_MODULE.md',     'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+(9003, '配置中心与多环境管理', 'docs/CONFIGURATION.md',      'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+(9005, '部署指南',             'docs/DEPLOYMENT.md',         'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+(9013, '性能与并发设计',       'docs/PERFORMANCE.md',        'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+(9014, '项目结构与模块职责',   'docs/PROJECT_STRUCTURE.md',  'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+(9018, '工具类使用指南',       'docs/UTILS.md',              'doc', 1, 1500, 200, NULL, 20260719, 20260719),
+-- 核心技术文档（1200/150，需精准检索）
+(9002, '三级缓存架构',         'docs/CACHE_ARCHITECTURE.md', 'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9004, '数据权限控制',         'docs/DATAPERMISSION.md',     'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9006, 'Excel导入导出',        'docs/EXCEL.md',              'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9008, '网关服务',             'docs/GATEWAY.md',            'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9009, '分布式幂等性',         'docs/IDEMPOTENT.md',         'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9010, '操作日志',             'docs/LOG.md',                'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9011, '消息与验证码服务',     'docs/MESSAGE.md',            'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9012, '服务监控与告警',       'docs/MONITORING.md',         'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9015, '频控防刷',             'docs/RATELIMIT.md',          'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9016, '安全认证与异常处理',   'docs/SECURITY.md',           'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9017, '链路追踪',             'docs/TRACING.md',            'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+(9019, '分布式定时任务XXLJOB', 'docs/XXLJOB.md',             'doc', 1, 1200, 150, NULL, 20260719, 20260719),
+-- 问答类（800/100，小切片避免跨问题噪声）
+(9007, '常见问题FAQ',          'docs/FAQ.md',                'doc', 1,  800, 100, NULL, 20260719, 20260719),
+
+-- ===== code 类型：服务源码（按模块一条，按 java 扩展名递归扫描） =====
+(9021, 'Admin服务源码',         'zmbdp-admin',                   'code', 1, 800, 100, NULL, 20260719, 20260719),
+(9022, 'Portal服务源码',        'zmbdp-portal',                  'code', 1, 800, 100, NULL, 20260719, 20260719),
+(9023, 'File服务源码',          'zmbdp-file',                    'code', 1, 800, 100, NULL, 20260719, 20260719),
+(9024, 'Gateway服务源码',       'zmbdp-gateway',                 'code', 1, 800, 100, NULL, 20260719, 20260719),
+(9025, 'Common公共模块源码',    'zmbdp-common',                  'code', 1, 800, 100, NULL, 20260719, 20260719),
+
+-- ===== javadoc 类型：JavaDoc API 文档（按 html/htm 扩展名递归扫描） =====
+(9031, 'JavaDoc文档',           'javapro/javadoc',               'javadoc', 1, 1200, 150, NULL, 20260719, 20260719),
+
+-- ===== config 类型：部署配置文件（按 yaml/yml/properties 扩展名递归扫描） =====
+-- prd 环境(vm1)部署配置在 deploy/prd/vm1/app 下（含 docker-compose、prometheus、redis、nacos 等配置）
+(9041, '部署配置文件',           'deploy/prd/vm1/app',            'config', 1, 1000, 150, NULL, 20260719, 20260719);
 
 -- =====================================
 -- AI 文档表（chat-service）
@@ -4707,9 +4750,8 @@ CREATE TABLE IF NOT EXISTS `sys_ai_document` (
     INDEX `idx_category` (`category`),
     INDEX `idx_status` (`status`),
     INDEX `idx_create_date` (`create_date`),
-    INDEX `idx_update_date` (`update_date`),
-    CONSTRAINT `fk_sys_ai_document_knowledge_source` FOREIGN KEY (`knowledge_source_id`) REFERENCES `sys_ai_knowledge_source`(`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI文档表';
+    INDEX `idx_update_date` (`update_date`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI文档表';
 
 -- =====================================
 -- AI 调用链路日志表（chat-service）
@@ -4722,7 +4764,7 @@ CREATE TABLE IF NOT EXISTS `sys_ai_operation_log` (
     `user_from` VARCHAR(10) NOT NULL COMMENT '用户来源（sys/app）',
     `conversation_id` BIGINT COMMENT '关联对话ID（sys_ai_conversation.id）',
     `operation_type` VARCHAR(20) NOT NULL COMMENT 'AI操作类型（CHAT/RETRIEVE/EMBEDDING/RERANK）',
-    `model` VARCHAR(50) NOT NULL COMMENT '调用的模型名称（如qwen-max、text-embedding-v1）',
+    `model` VARCHAR(50) NOT NULL COMMENT '调用的模型名称（如deepseek-v4-flash、text-embedding-v1）',
     `prompt` LONGTEXT COMMENT '完整Prompt（含RAG检索到的文档上下文）',
     `response` LONGTEXT COMMENT 'LLM完整响应内容',
     `tool_calls` TEXT COMMENT '工具调用链路（JSON数组，如[{"name":"ReadFileTool","success":true,"duration":45,"summary":"..."}]）',
@@ -4741,7 +4783,7 @@ CREATE TABLE IF NOT EXISTS `sys_ai_operation_log` (
     INDEX `idx_status` (`status`),
     INDEX `idx_create_date` (`create_date`),
     INDEX `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI调用链路日志表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI调用链路日志表';
 
 -- =====================================
 -- AI 对话记录表（chat-service）
@@ -4774,7 +4816,7 @@ CREATE TABLE IF NOT EXISTS `sys_ai_conversation` (
     INDEX `idx_is_deleted` (`is_deleted`),
     INDEX `idx_create_date` (`create_date`),
     INDEX `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI对话记录表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI对话记录表';
 
 -- =====================================
 -- AI 权限表（chat-service）
@@ -4798,7 +4840,7 @@ CREATE TABLE IF NOT EXISTS `sys_ai_permission` (
     INDEX `idx_update_date` (`update_date`),
     INDEX `idx_expire_date` (`expire_date`),
     UNIQUE INDEX `uk_user_model` (`user_id`, `user_from`, `model_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI权限表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI权限表';
 
 -- =====================================
 -- AI 配置和工具启用状态已复用 sys_argument 表（见文件开头 sys_argument 预置数据）
@@ -4825,6 +4867,6 @@ CREATE TABLE IF NOT EXISTS `sys_ai_feedback` (
     KEY `idx_dislike_reason` (`dislike_reason`),
     KEY `idx_create_date` (`create_date`),
     KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI回答反馈表';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'AI回答反馈表';
 
 COMMIT;

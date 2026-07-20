@@ -5,3 +5,13 @@ wx:
   applet:
     app-id: # 微信小程序 appId
     app-secret: # 微信小程序 appSecret
+
+# ==================== C端 AI 对话配置 ====================
+scaffold:
+  portal:
+    # 系统提示词文件路径（支持 classpath: 或 file: 前缀）
+    system-prompt-path: classpath:prompt/system-prompt.txt
+    # RAG 上下文最大长度（字符数），超出则按 score 降序截断低分文档
+    context-max-length: 8000
+    # WebClient 调用 chat-service SSE 端点的超时时间（毫秒），超时返回错误帧
+    webclient-timeout: 60000
