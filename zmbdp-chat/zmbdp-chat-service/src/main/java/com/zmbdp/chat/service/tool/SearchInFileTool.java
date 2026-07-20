@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
@@ -67,7 +68,7 @@ public class SearchInFileTool {
      * @param keyword  搜索关键字
      * @return 匹配结果 JSON；异常时返回错误 JSON
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "在指定文件中搜索关键字，参数filePath为文件绝对路径，keyword为搜索关键字。用于查找某个方法或变量在文件中的具体位置。"
     )
     public String searchInFile(String filePath, String keyword) {

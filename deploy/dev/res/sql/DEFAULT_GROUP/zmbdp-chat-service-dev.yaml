@@ -42,7 +42,7 @@ spring:
         capabilities: [TEXT]
       # 视觉多模态模型
       - type: TEXT_AND_IMAGE
-        name: qwen-vl-max
+        name: qwen-vl-plus
         # name: glm-5.2
         provider: dashscope
         enabled: true

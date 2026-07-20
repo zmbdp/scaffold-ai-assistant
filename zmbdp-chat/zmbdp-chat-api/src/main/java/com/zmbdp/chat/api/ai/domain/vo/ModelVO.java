@@ -21,7 +21,7 @@ public class ModelVO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 模型名称（如 deepseek-v4-flash、qwen-vl-max）
+     * 模型名称（如 deepseek-v4-flash、qwen-vl-plus）
      */
     private String name;
 

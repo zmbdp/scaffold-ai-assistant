@@ -6,6 +6,7 @@ import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 知识库管理服务
@@ -101,4 +102,26 @@ public interface IKnowledgeService {
      * @return 同步结果统计
      */
     SyncResultVO sync(SyncReqDTO dto);
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 将上传的文件保存到知识源 path 目录下，并立即对该文件执行分块、向量化、写入 Milvus。
+     * <p>
+     * <b>校验规则</b>：
+     * <ul>
+     *     <li>文件非空、文件名非空</li>
+     *     <li>文件大小 ≤ 50MB</li>
+     *     <li>文件扩展名 ∈ {.md, .txt, .html, .java, .py, .xml, .json}</li>
+     * </ul>
+     * <p>
+     * <b>调用链路</b>：本方法做参数校验和文件读取，
+     * 实际的文件保存、分块、向量化委托给 {@link IKnowledgeLoaderService#uploadDocument}。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件（MultipartFile）
+     * @return 新插入的文档 VO（含生成的 ID）
+     * @throws com.zmbdp.common.domain.exception.ServiceException 参数非法、知识源不存在、文件已存在、向量化失败
+     */
+    KnowledgeDocumentVO uploadDocument(Long knowledgeSourceId, MultipartFile file);
 }

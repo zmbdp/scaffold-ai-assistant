@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
@@ -74,7 +75,7 @@ public class ListDirTool {
      * @param dirPath 目录绝对路径
      * @return ASCII 目录树字符串；异常时返回 JSON 格式的错误信息
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "列出指定目录的结构，参数dirPath为目录绝对路径。用于查看项目或模块的目录组织。"
     )
     public String listDir(String dirPath) {

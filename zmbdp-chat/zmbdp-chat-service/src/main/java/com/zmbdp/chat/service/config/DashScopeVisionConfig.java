@@ -15,7 +15,7 @@ import java.time.Duration;
 /**
  * DashScope 视觉模型调用配置
  * <p>
- * 专门用于图文对话，通过 <b>DashScope OpenAI 兼容模式</b>端点调用视觉模型（如 qwen-vl-max）。
+ * 专门用于图文对话，通过 <b>DashScope OpenAI 兼容模式</b>端点调用视觉模型（如 qwen-vl-plus）。
  * <p>
  * <b>为什么不复用 Spring AI Alibaba 的 ChatClient？</b>
  * Spring AI Alibaba 1.0.0.2 的 {@code DashScopeChatModel} 存在多模态路由 bug：

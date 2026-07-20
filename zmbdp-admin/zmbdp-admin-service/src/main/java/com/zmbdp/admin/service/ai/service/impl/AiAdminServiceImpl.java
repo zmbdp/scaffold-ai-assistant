@@ -36,6 +36,7 @@ import com.zmbdp.admin.service.ai.service.IAiAdminService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -170,6 +171,15 @@ public class AiAdminServiceImpl implements IAiAdminService {
     public List<DocumentVO> retrieveTest(RetrieveReqDTO request) {
         Result<List<DocumentVO>> result = knowledgeApi.retrieveTest(request);
         return unwrap(result, "召回测试失败");
+    }
+
+    /**
+     * 上传文档到指定知识源
+     */
+    @Override
+    public KnowledgeDocumentVO uploadDocument(Long knowledgeSourceId, MultipartFile file) {
+        Result<KnowledgeDocumentVO> result = knowledgeApi.uploadDocument(knowledgeSourceId, file);
+        return unwrap(result, "上传文档失败");
     }
 
     /* ============================================= AI 配置管理 ============================================= */

@@ -23,6 +23,7 @@ import com.zmbdp.chat.api.statistics.domain.vo.ToolStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO;
 import com.zmbdp.chat.api.system.domain.vo.SystemHealthVO;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -122,6 +123,18 @@ public interface IAiAdminService {
      * @return 命中的文档分块列表
      */
     List<DocumentVO> retrieveTest(RetrieveReqDTO request);
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 通过 Feign 调用 chat-service 的 {@code KnowledgeApi.uploadDocument}，
+     * 将上传的文件保存到知识源 path 目录下并立即向量化。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件（MultipartFile）
+     * @return 新插入的文档 VO（含生成的 ID）
+     */
+    KnowledgeDocumentVO uploadDocument(Long knowledgeSourceId, MultipartFile file);
 
     /* ============================================= AI 配置管理 ============================================= */
 

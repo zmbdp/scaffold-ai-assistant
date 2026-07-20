@@ -13,6 +13,7 @@ import com.zmbdp.common.log.annotation.LogAction;
 import com.zmbdp.admin.service.ai.service.IAiAdminService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,7 +23,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -41,6 +44,7 @@ import java.util.List;
  *     <li>{@code GET /knowledge/documents}：获取文档列表（分页）</li>
  *     <li>{@code GET /knowledge/documents/{id}}：获取文档详情</li>
  *     <li>{@code DELETE /knowledge/documents/{id}}：删除文档</li>
+ *     <li>{@code POST /knowledge/documents/upload}：上传文档</li>
  *     <li>{@code POST /knowledge/retrieve-test}：召回测试</li>
  * </ul>
  * <p>
@@ -178,6 +182,29 @@ public class KnowledgeController {
     public Result<Void> deleteDocument(@PathVariable("id") Long id) {
         aiAdminService.deleteDocument(id);
         return Result.success();
+    }
+
+    /**
+     * 上传文档到指定知识源
+     * <p>
+     * 将上传的文件经 Feign 转发到 chat-service，由 chat-service 保存到知识源 path 目录下并立即执行
+     * 分块、向量化、写入 Milvus，不等定时同步任务。
+     * <p>
+     * <b>文件限制</b>：大小 ≤ 50MB；扩展名 ∈ {.md, .txt, .html, .java, .py, .xml, .json}。
+     *
+     * @param knowledgeSourceId 知识源ID
+     * @param file              上传的文件
+     * @return 新插入的文档 VO（含生成的 ID）
+     */
+    @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @LogAction(value = "上传文档", module = "knowledge", recordParams = true)
+    public Result<KnowledgeDocumentVO> uploadDocument(
+            @RequestParam("knowledgeSourceId") Long knowledgeSourceId,
+            @RequestPart("file") MultipartFile file) {
+        log.info("上传文档：knowledgeSourceId = {}, fileName = {}, size = {} 字节",
+                knowledgeSourceId, file != null ? file.getOriginalFilename() : null,
+                file != null ? file.getSize() : 0);
+        return Result.success(aiAdminService.uploadDocument(knowledgeSourceId, file));
     }
 
     /* ============================================= 召回测试 ============================================= */

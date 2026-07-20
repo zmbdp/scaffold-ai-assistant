@@ -4,6 +4,7 @@ import com.zmbdp.chat.service.service.INacosConfigService;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -173,7 +174,7 @@ public class PreDeployCheckTool {
      * @param env 目标环境（dev/test/prd）
      * @return 检查报告 JSON；异常时返回错误 JSON
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "部署前静态配置检查，参数env为目标环境（dev/test/prd）。检查Nacos配置项完整性、Dockerfile和docker-compose配置是否合理。不做运行时连接测试。"
     )
     public String preDeployCheck(String env) {

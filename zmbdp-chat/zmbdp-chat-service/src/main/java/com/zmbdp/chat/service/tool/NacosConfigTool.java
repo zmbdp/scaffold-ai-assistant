@@ -3,6 +3,7 @@ package com.zmbdp.chat.service.tool;
 import com.zmbdp.chat.service.service.INacosConfigService;
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -67,7 +68,7 @@ public class NacosConfigTool {
      * @param env    环境（dev/test/prd，必填，用于拼接完整 dataId）
      * @return 配置文件内容字符串；异常时返回 JSON 格式的错误信息
      */
-    @org.springframework.ai.tool.annotation.Tool(
+    @Tool(
             description = "查询Nacos配置项的内容，参数dataId为配置ID（不带环境后缀，如share-redis），group为分组（默认DEFAULT_GROUP），env为环境（dev/test/prd）。用于查看某个配置项的具体内容。"
     )
     public String nacosConfig(String dataId, String group, String env) {
