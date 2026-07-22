@@ -2,6 +2,7 @@ package com.zmbdp.admin.service;
 
 import com.zmbdp.chat.api.ai.feign.AiConfigApi;
 import com.zmbdp.chat.api.ai.feign.ToolsApi;
+import com.zmbdp.chat.api.feedback.feign.FeedbackApi;
 import com.zmbdp.chat.api.knowledge.feign.KnowledgeApi;
 import com.zmbdp.chat.api.operationlog.feign.OperationLogApi;
 import com.zmbdp.chat.api.statistics.feign.StatisticsApi;
@@ -37,7 +38,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         ToolsApi.class,
         OperationLogApi.class,
         StatisticsApi.class,
-        SystemApi.class
+        SystemApi.class,
+        FeedbackApi.class
 })
 @SpringBootApplication
 public class ZmbdpAdminServiceApplication {
