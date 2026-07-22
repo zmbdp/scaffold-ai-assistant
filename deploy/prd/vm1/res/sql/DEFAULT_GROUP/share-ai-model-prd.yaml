@@ -1,0 +1,83 @@
+# ==================== AI 模型配置（chat-service 专属共享配置） ====================
+# 包含：DashScope API、多模型管理、Embedding 开关、RAG 参数、工具超时、定时任务线程池
+# 由 zmbdp-chat-service 的 bootstrap.yml 通过 shared-configs 引入
+
+spring:
+  web:
+    client:
+      # Spring RestClient 连接超时：建立 TCP 连接的最长等待时间
+      # 作用范围：Spring AI DashScope 的 Embedding / Chat / Rerank 等同步 HTTP 请求
+      connect-timeout: 30s
+      # Spring RestClient 读取超时：等待服务端返回响应的最长时间
+      # 作用范围：同上，Embedding 向量化大文本时需适当放宽
+      read-timeout: 180s
+  ai:
+    # 通义千问模型配置（DashScope）
+    dashscope:
+      api-key: # 你的通义千问API Key
+      chat:
+        model: deepseek-v4-flash
+        options:
+          temperature: 0.7
+      embedding:
+        options:
+          model: qwen3.7-text-embedding
+          # Embedding 输出维度，引用 Milvus 集合维度（share-knowledge-*.yaml 的 spring.ai.milvus.embedding-dimension）
+          # 改维度时只需改 share-knowledge-*.yaml 的 embedding-dimension 一处，DashScope 自动引用
+          # 仅 text-embedding-v3/v4 等新模型支持此参数，v1/v2 不支持（会被 API 忽略或报错）
+          dimensions: ${spring.ai.milvus.embedding-dimension}
+      # 重排序模型配置
+      # 配置前缀必须为 spring.ai.dashscope.rerank，由 DashScopeRerankAutoConfiguration 自动装配 RerankModel Bean
+      rerank:
+        options:
+          model: qwen3-rerank
+    # 禁用 Spring AI Transformers 自动装配（由 LocalEmbeddingConfig 按 scaffold.embedding.provider 开关手动创建）
+    model:
+      embedding: none
+    # 多模型管理配置
+    # 启动时由 ModelServiceImpl @PostConstruct 解析，为每个 enabled=true 的模型构建 ChatClient 实例
+    # 注意：default-model 用 kebab-case，因为 "default" 是 Java 关键字不能直接作为字段名
+    models:
+      - type: TEXT_ONLY
+        name: qwen3.7-plus-2026-05-26
+        provider: dashscope
+        enabled: true
+        default-model: true
+        capabilities: [TEXT]
+      - type: TEXT_AND_IMAGE
+        name: qwen3.5-ocr
+        provider: dashscope
+        enabled: true
+        default-model: true
+        capabilities: [TEXT, IMAGE]
+
+# ==================== RAG 检索参数 / 工具超时 / 定时任务 / Embedding 开关 ====================
+scaffold:
+  rag:
+    top-k: 5
+    context-max-length: 8000
+    memory-rounds: 5
+    rerank-timeout: 5000
+  tool:
+    # 工具调用超时（秒）
+    timeout: 30
+  # 定时任务线程池配置
+  scheduler:
+    pool-size: 5
+    thread-name-prefix: "scheduled-"
+  # ==================== Embedding 模型开关 ====================
+  # provider=local：启用本地 ONNX 模型（免费，基于 Spring AI TransformersEmbeddingModel）
+  # provider=dashscope：使用通义千问远程 Embedding API（收费，默认）
+  # 切换后需重启 chat-service（Embedding 配置不支持热刷新，框架限制）
+  # bge-large-zh-v1.5 输出 1024 维，与 DashScope qwen3.7-text-embedding 维度一致，切换无需改 embedding-dimension
+  embedding:
+    provider: local
+    local:
+      # 本地模型名称（用于 B 端回显）
+      model-name: bge-large-zh-v1.5
+      # ONNX 模型文件路径（容器内挂载路径，宿主机 /opt/scaffold-ai-assistant/deploy/models → /models）
+      onnx-model-uri: file:/models/bge-large-zh-v1.5/model.onnx
+      # 分词器文件路径
+      tokenizer-uri: file:/models/bge-large-zh-v1.5/tokenizer.json
+      # 模型输出层名称（bge-large-zh-v1.5 的 ONNX 输出层为 last_hidden_state）
+      model-output-name: last_hidden_state

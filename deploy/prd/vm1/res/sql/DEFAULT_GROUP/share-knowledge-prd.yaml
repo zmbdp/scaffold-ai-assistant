@@ -1,0 +1,50 @@
+# ==================== 知识库配置（chat-service 专属共享配置） ====================
+# 包含：Milvus 向量数据库、知识库路径、启动同步
+# 由 zmbdp-chat-service 的 bootstrap.yml 通过 shared-configs 引入
+
+spring:
+  ai:
+    # Milvus 向量数据库配置（Spring AI 标准前缀）
+    milvus:
+      host: 你的云服务器1内网ip/你的虚拟机1内网ip
+      port: 19530
+      database-name: default
+      collection-name: scaffold_knowledge
+      # 输出维度（bge-large-zh-v1.5 和 qwen3.7-text-embedding 均为 1024 维，切换无需修改）
+      embedding-dimension: 1024
+      index-type: HNSW
+      metric-type: IP
+      index-parameters:
+        efConstruction: 200
+        M: 16
+      query-parameters:
+        efRuntime: 100
+      # 维度不一致时是否自动重建集合（启动时检查现有集合维度，与配置不一致时自动 drop+重建）
+      # 生产环境必须为 false：避免误删向量数据，由管理员手动确认后通过 DBA 工具处理
+      # 重建会清空 sys_ai_document 表所有记录并 drop Milvus 集合，生产环境慎用
+      auto-rebuild-on-dimension-mismatch: false
+
+# ==================== 知识库路径配置（供 Agent 工具使用） ====================
+# 容器内路径固定为 /knowledge（由 docker-compose-app.yml 中 /data/scaffold-ai-assistant/frameworkjava:/knowledge:ro 挂载）
+knowledge:
+  # 根路径
+  base-path: /knowledge
+  # 路径白名单（Agent 工具调用时校验）
+  allowed-paths:
+    - /knowledge
+  # 路径黑名单
+  path-blacklist:
+    - .git
+    - /etc
+    - /tmp
+  # 单文件最大 10MB
+  max-file-size: 10485760
+  # ==================== 启动时自动知识同步 ====================
+  # 服务启动完成后自动触发一次知识同步（异步执行，不阻塞启动；内部含 Redisson 分布式锁，多实例安全）
+  startup-sync:
+    # 是否启用启动时同步（true=启用，false=禁用）
+    enabled: true
+    # 是否强制全量同步（false=增量同步仅处理变更文件【推荐】；true=全量重新向量化）
+    force: false
+    # 启动同步前的等待时间（毫秒），等待 Milvus 集合加载和 Embedding 模型就绪
+    delay-ms: 3000
