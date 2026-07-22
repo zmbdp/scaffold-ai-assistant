@@ -1,0 +1,13 @@
+# ==================== chat-service 服务特有配置（test 环境） ====================
+# AI 模型相关配置 → share-ai-model-test.yaml
+# 知识库/Milvus 相关配置 → share-knowledge-test.yaml
+# 本文件仅保留服务端口、xxl-job 等服务特有配置
+
+server:
+  port: 18084
+
+# ==================== xxl-job 执行器配置（覆盖 share-xxljob-test.yaml） ====================
+xxl:
+  job:
+    executor:
+      appname: zmbdp-chat-service-executor
