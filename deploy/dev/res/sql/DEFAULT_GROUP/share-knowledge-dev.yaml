@@ -1,0 +1,50 @@
+# ==================== 知识库配置（chat-service 专属共享配置） ====================
+# 包含：Milvus 向量数据库、知识库路径、启动同步
+# 由 zmbdp-chat-service 的 bootstrap.yml 通过 shared-configs 引入
+
+spring:
+  ai:
+    # Milvus 向量数据库配置（Spring AI 标准前缀）
+    milvus:
+      host: 127.0.0.1
+      port: 19530
+      database-name: default
+      collection-name: scaffold_knowledge
+      # 输出维度（bge-large-zh-v1.5 和 qwen3.7-text-embedding 均为 1024 维，切换无需修改）
+      embedding-dimension: 1024
+      index-type: HNSW
+      metric-type: IP
+      index-parameters:
+        efConstruction: 200
+        M: 16
+      query-parameters:
+        efRuntime: 100
+      # 维度不一致时是否自动重建集合（启动时检查现有集合维度，与配置不一致时自动 drop+重建）
+      # 开发/测试环境推荐 true：切换 Embedding 模型导致维度变化时自动重建，避免插入/检索失败
+      # 生产环境推荐 false：避免误删数据，由管理员手动处理
+      auto-rebuild-on-dimension-mismatch: true
+x`
+# ==================== 知识库路径配置（供 Agent 工具使用） ====================
+knowledge:
+  # 本地开发时填项目实际绝对路径（Windows 用正斜杠或双反斜杠）
+  base-path: d:/GitHub/frameworkjava
+  # 路径白名单支持动态调整，范围包含整个项目
+  allowed-paths:
+    - d:/GitHub/frameworkjava
+  # 禁止访问的路径列表
+  path-blacklist:
+    - .git
+    - /etc
+    - /tmp
+  # 最大文件大小（字节），默认10MB
+  max-file-size: 10485760
+  # ==================== 启动时自动知识同步 ====================
+  # 服务启动完成后自动触发一次知识同步（异步执行，不阻塞启动；内部含 Redisson 分布式锁，多实例安全）
+  # 关闭场景：调试启动速度、临时排查问题、向量库已由其他实例同步完成
+  startup-sync:
+    # 是否启用启动时同步（true=启用，false=禁用）
+    enabled: true
+    # 是否强制全量同步（false=增量同步仅处理变更文件【推荐】；true=全量重新向量化，适用于切换 Embedding 模型后重建向量库）
+    force: false
+    # 启动同步前的等待时间（毫秒），等待 Milvus 集合加载和 Embedding 模型就绪，避免首次调用失败
+    delay-ms: 3000
