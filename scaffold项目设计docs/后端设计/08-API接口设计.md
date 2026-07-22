@@ -145,7 +145,7 @@ public Result<Void> updateConfig(@RequestBody AiConfigDTO dto) {
 | POST /admin/knowledge/sources | KnowledgeController | KnowledgeApi.addSource() | IKnowledgeService.createSource() | 新增知识源 |
 | PUT /admin/knowledge/sources/{id} | KnowledgeController | KnowledgeApi.updateSource() | IKnowledgeService.updateSource() | 更新知识源 |
 | DELETE /admin/knowledge/sources/{id} | KnowledgeController | KnowledgeApi.deleteSource() | IKnowledgeService.deleteSource() → IVectorStoreService.deleteByDocumentId() | 删除知识源（级联删除） |
-| POST /admin/knowledge/sync | KnowledgeController | KnowledgeApi.sync() | IKnowledgeService.sync() → IKnowledgeLoaderService.syncKnowledge() | 知识同步 |
+| POST /admin/knowledge/sync | KnowledgeController | MQ 异步（knowledge.sync.exchange） | KnowledgeSyncConsumer → IKnowledgeLoaderService.syncKnowledge(sourceType, force) | 知识同步（异步） |
 | GET /admin/knowledge/documents | KnowledgeController | KnowledgeApi.getDocuments() | IKnowledgeService.listDocuments() | 文档列表 |
 | POST /admin/knowledge/documents/upload | KnowledgeController | 直接处理（不走 Feign） | IKnowledgeService.uploadDocument() → IKnowledgeLoaderService | 上传文档 |
 | GET /admin/knowledge/documents/{id} | KnowledgeController | KnowledgeApi.getDocument() | IKnowledgeService.getDocument() | 文档详情 |
@@ -724,22 +724,43 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
         "role": "user",
         "content": "三级缓存怎么用？",
         "timestamp": 1700000000000,
-        "hasImage": false
+        "images": null
       },
       {
         "role": "assistant",
-        "content": "三级缓存架构包含布隆过滤器...",
-        "timestamp": 1700000000001,
-        "hasImage": false,
-        "sources": [...],
+        "content": "三级缓存由布隆过滤器 + Caffeine + Redis 组成...",
+        "timestamp": 1700000000000,
+        "images": null,
+        "sources": ["脚手架缓存设计"],
         "model": "deepseek-v4-flash"
+      },
+      {
+        "role": "user",
+        "content": "这张图片里是什么？",
+        "timestamp": 1700000001000,
+        "images": [
+          "https://your-oss-bucket.oss-cn-beijing.aliyuncs.com/2026/07/19/test-image-001.png"
+        ]
       }
     ]
   }
 }
 ```
 
-**调用链路**：portal-service `HistoryController.getSessionHistory()` → `PortalHistoryService.getSessionHistory()` → Feign `HistoryApi.getSessionHistory(sessionId)` → chat-service `IHistoryService.getSessionHistory()`
+**字段说明**：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `messages[].role` | String | 消息角色：user（用户提问）/ assistant（AI 回答） |
+| `messages[].content` | String | 消息内容（user 取 question，assistant 取 answer） |
+| `messages[].timestamp` | Long | 消息时间戳（毫秒，取自 sys_ai_conversation.create_time） |
+| `messages[].images` | List&lt;String&gt; | 图片 URL 列表（仅 user 消息有效，图文对话时返回；纯文本对话或 assistant 消息为 null） |
+| `messages[].sources` | List&lt;String&gt; | RAG 引用来源（文档标题列表，仅 assistant 消息有效，未命中 RAG 时为 null） |
+| `messages[].model` | String | 模型名称（仅 assistant 消息有效） |
+
+**数据源**：`sys_ai_conversation` 表（按 session_id 查询，按 create_time 正序）。每条记录拆分为 user + assistant 两条 Message；answer 为空时跳过 assistant 消息（FAILED 且无响应的情况）。
+
+**调用链路**：portal-service `HistoryController.getSessionHistory()` → `PortalHistoryService.getSessionHistory()` → Feign `HistoryApi.getSessionHistory(sessionId)` → chat-service `IHistoryService.getSessionHistory()` → `SysAiConversationMapper.selectListBySessionId()`
 
 ---
 
@@ -989,6 +1010,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ### 8.6.11 POST /admin/knowledge/sync
 
+**说明**：本接口为**异步**接口。由于知识同步涉及扫描文件、Embedding 调用、Milvus 写入，耗时可能数分钟，同步 HTTP 调用会导致前端超时。改为 MQ 异步后，接口立即返回"已提交"提示，实际同步流程由 chat-service 消费端 `KnowledgeSyncConsumer` 异步执行，前端通过文档列表（GET /admin/knowledge/documents）查看同步结果。
+
 **请求头**：`Authorization: Bearer {token}`
 
 **请求体**：
@@ -1002,7 +1025,7 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 | 字段          | 类型      | 必填  | 说明                  |
 | ----------- | ------- | --- | ------------------- |
-| `sourceType` | String  | 否   | 同步类型（all/doc/code），默认all |
+| `sourceType` | String  | 否   | 同步类型（all/doc/javadoc/config/code），传 null 或 "all" 表示全部，默认 all |
 | `force`     | Boolean | 否   | 是否强制重新同步，默认false     |
 
 **响应体**：
@@ -1011,27 +1034,26 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 {
   "code": 200000,
   "errMsg": "操作成功",
-  "data": {
-    "totalDocuments": 100,
-    "updatedDocuments": 10,
-    "deletedDocuments": 5,
-    "skippedDocuments": 85,
-    "failedDocuments": 0,
-    "duration": 15000
-  }
+  "data": "知识同步任务已提交，请稍后通过文档列表查看同步结果"
 }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `totalDocuments` | Integer | 处理的文档总数 |
-| `updatedDocuments` | Integer | 新增+更新的文档数 |
-| `deletedDocuments` | Integer | 删除的文档数 |
-| `skippedDocuments` | Integer | 跳过的文档数（哈希未变） |
-| `failedDocuments` | Integer | 处理失败的文档数 |
-| `duration` | Long | 同步耗时（毫秒） |
+| `data` | String | 异步任务提交提示信息（非同步结果，实际同步结果需查看文档列表） |
 
-**调用链路**：admin-service `KnowledgeController` → Feign `KnowledgeApi.sync()` → chat-service `IKnowledgeService.sync()` → `IKnowledgeLoaderService.syncKnowledge()`
+**调用链路**：admin-service `KnowledgeController.syncKnowledge()` → `IAiAdminService.syncKnowledge()` → 发送 MQ 消息到 `knowledge.sync.exchange`（Direct 交换机）→ chat-service `KnowledgeSyncConsumer.handleKnowledgeSync()` 消费 → `IKnowledgeLoaderService.syncKnowledge(sourceType, force)` 执行 12 步同步流程
+
+**MQ 配置**：
+
+| 配置项 | 值 | 说明 |
+|------|------|------|
+| 交换机 | `knowledge.sync.exchange` | Direct 类型，admin-service 声明（`KnowledgeSyncMqConfig`） |
+| 队列 | `knowledge.sync.queue` | 持久化命名队列，chat-service 消费端通过 `@QueueBinding` 自动声明 |
+| 路由键 | `knowledge.sync` | Direct 路由键 |
+| 消息体 | `KnowledgeSyncMessage` | 含 sourceType、force 字段 |
+
+**sourceType 筛选说明**：消费端调用 `syncKnowledge(sourceType, force)` 时，sourceType 非空且非 "all" 会作为查询条件过滤 `sys_ai_knowledge_source.type` 字段，仅同步匹配类型的知识源。
 
 ---
 
@@ -1958,6 +1980,8 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 | `createTime` | String | 操作时间 |
 
 > **说明**：管理员通过此接口查看单次AI调用的完整链路，包含Prompt、LLM响应、工具调用详情和Token消耗，用于问题排查和效果评估。数据来源：`sys_ai_operation_log` 表的显式字段（`prompt`/`response`/`tool_calls`/`prompt_tokens` 等）。
+>
+> **埋点前置依赖**：`sys_ai_operation_log` 表的数据由 `ChatServiceImpl.recordOperationLog()` 在流式对话完成后异步写入。当前已实施到第二阶段：`prompt`/`response`/`status`/`response_time`/`prompt_tokens`/`completion_tokens`/`total_tokens` 字段已填充，仅 `tool_calls` 字段暂留 null（第三阶段通过 ToolCallback 装饰器补全），详见 [11-用户级AI调用统计设计.md](./11-用户级AI调用统计设计.md) 11.12 节。
 
 **调用链路**：admin-service → Feign `StatisticsApi.getOperationDetail()` → chat-service `StatisticsController.getOperationDetail()` → `IStatisticsService.getOperationDetail()` → 查询 `sys_ai_operation_log` 表
 
@@ -2020,7 +2044,103 @@ data: {"chunk": "", "done": true, "sessionId": "abc123", "sources": [...], "mode
 
 ---
 
-**文档版本**：v1.6  
+### 8.6.37 GET /admin/feedback/list（B端反馈明细分页查询）
+
+**请求头**：`Authorization: Bearer {token}`
+
+**请求参数**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `pageNo` | Integer | 否 | 页码，默认1 |
+| `pageSize` | Integer | 否 | 每页数量，默认20 |
+| `feedbackType` | String | 否 | 反馈类型过滤（LIKE/DISLIKE） |
+| `dislikeReason` | String | 否 | 点踩原因过滤（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER，仅 feedbackType=DISLIKE 时有意义） |
+| `userId` | Long | 否 | 用户ID过滤 |
+| `startDate` | Long | 否 | 起始日期（格式：20260712） |
+| `endDate` | Long | 否 | 结束日期（格式：20260712） |
+
+**响应体**：
+
+```json
+{
+  "code": 200000,
+  "errMsg": "操作成功",
+  "data": {
+    "list": [
+      {
+        "id": 200001,
+        "conversationId": 803176621614825472,
+        "userId": 10000020,
+        "userFrom": "app",
+        "feedbackType": "DISLIKE",
+        "dislikeReason": "CODE_ERROR",
+        "comment": "示例代码有语法错误，缺少分号",
+        "createTime": "2026-07-21 23:10:20",
+        "question": "如何配置 Nacos 配置中心？",
+        "answerSummary": "Nacos 配置中心的使用步骤如下：1. 引入依赖...（截断200字）",
+        "model": "deepseek-v4-flash",
+        "sources": ["脚手架总览README", "common-nacos 配置说明"]
+      }
+    ],
+    "totals": 50,
+    "totalPages": 3
+  }
+}
+```
+
+**响应字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `list[].id` | Long | 反馈ID |
+| `list[].conversationId` | Long | 对话记录ID（关联 sys_ai_conversation.id） |
+| `list[].userId` | Long | 反馈用户ID |
+| `list[].userFrom` | String | 用户来源（sys/app） |
+| `list[].feedbackType` | String | 反馈类型（LIKE/DISLIKE） |
+| `list[].dislikeReason` | String | 点踩原因（仅 feedbackType=DISLIKE 时有值，OUTDATED/IRRELEVANT/CODE_ERROR/OTHER） |
+| `list[].comment` | String | 文字评论 |
+| `list[].createTime` | LocalDateTime | 反馈时间 |
+| `list[].question` | String | 用户原始提问（SQL LEFT 截断 100 字，避免响应过大） |
+| `list[].answerSummary` | String | AI 回答摘要（SQL LEFT 截断 200 字，完整回答可通过 8.6.4 接口查看） |
+| `list[].model` | String | 使用的模型名称 |
+| `list[].sources` | List&lt;String&gt; | RAG 引用来源列表（JSON 数组反序列化） |
+| `totals` | Integer | 总记录数 |
+| `totalPages` | Integer | 总页数 |
+
+> **说明**：本接口为 B 端管理员查看用户反馈明细，单条记录同时返回反馈信息 + 对话问答摘要，管理员可一眼看到"用户问了什么、AI 答了什么、为什么点踩"。
+>
+> **answer 截断原因**：`sys_ai_conversation.answer` 字段为 LONGTEXT，AI 一次回答可能数千字。列表页若全量返回 20 条 × LONGTEXT 会导致响应体上 MB，前端渲染卡顿。故 SQL 层用 `LEFT(answer, 200)` 截断 200 字；如需查看完整 AI 回答，可通过 8.6.4 `GET /portal/history/{sessionId}` 会话详情接口查看（该接口返回完整 answer）。
+>
+> **数据来源**：`sys_ai_feedback` 表 LEFT JOIN `sys_ai_conversation` 表（ON `f.conversation_id = c.id`），一对一关系。LEFT JOIN 而非 INNER JOIN 是为了兼容对话记录被软删除但反馈记录仍存在的场景。
+
+**SQL 设计**：
+
+```sql
+SELECT 
+    f.id, f.conversation_id, f.user_id, f.user_from, 
+    f.feedback_type, f.dislike_reason, f.comment, f.create_time,
+    LEFT(c.question, 100) AS question,
+    LEFT(c.answer, 200) AS answer_summary,
+    c.model, c.sources
+FROM sys_ai_feedback f
+LEFT JOIN sys_ai_conversation c ON f.conversation_id = c.id
+WHERE 1=1
+  [AND f.feedback_type = #{feedbackType}]      -- 可选过滤
+  [AND f.dislike_reason = #{dislikeReason}]    -- 可选过滤
+  [AND f.user_id = #{userId}]                  -- 可选过滤
+  [AND f.create_date >= #{startDate}]          -- 可选过滤
+  [AND f.create_date <= #{endDate}]            -- 可选过滤
+ORDER BY f.create_time DESC
+```
+
+> **分页实现**：使用 MyBatis-Plus `Page<FeedbackAdminVO>` 对象，分页插件自动注入 `LIMIT` 子句。`selectFeedbackListPage` 是自定义 Mapper 方法（XML 实现），因联表查询无法用 `LambdaQueryWrapper`。
+
+**调用链路**：admin-service `FeedbackController.listFeedbacks()` → Feign `FeedbackApi.listFeedbacks()` → chat-service `FeedbackController.listFeedbacks()` → `IFeedbackService.listFeedbacks()` → `SysAiFeedbackMapper.selectFeedbackListPage()`（JOIN sys_ai_conversation）
+
+---
+
+**文档版本**：v1.7  
 **创建日期**：2026-07-12  
-**最后更新**：2026-07-14  
+**最后更新**：2026-07-21  
 **适用版本**：Scaffold AI Assistant v1.0
