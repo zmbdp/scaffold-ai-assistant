@@ -36,4 +36,48 @@
         ORDER BY count DESC
     </select>
 
+    <!--
+        B 端反馈明细分页查询（联表 sys_ai_conversation）
+        - LEFT JOIN：兼容对话记录被软删除但反馈记录仍存在的场景
+        - LEFT(c.question, 100)：截断用户问题，避免响应过大
+        - LEFT(c.answer, 200)：截断 AI 回答摘要，完整回答通过会话详情接口查看
+        - c.sources AS sourcesJson：JSON 字符串中间字段，由 Service 层反序列化为 List<String>
+        - 分页：MyBatis-Plus 分页插件自动注入 LIMIT 子句（第一个参数为 IPage 对象）
+    -->
+    <select id="selectFeedbackListPage" resultType="com.zmbdp.chat.api.feedback.domain.vo.FeedbackAdminVO">
+        SELECT
+            f.id,
+            f.conversation_id AS conversationId,
+            f.user_id AS userId,
+            f.user_from AS userFrom,
+            f.feedback_type AS feedbackType,
+            f.dislike_reason AS dislikeReason,
+            f.comment,
+            f.create_time AS createTime,
+            LEFT(c.question, 100) AS question,
+            LEFT(c.answer, 200) AS answerSummary,
+            c.model,
+            c.sources AS sourcesJson
+        FROM sys_ai_feedback f
+        LEFT JOIN sys_ai_conversation c ON f.conversation_id = c.id
+        <where>
+            <if test="feedbackType != null and feedbackType != ''">
+                AND f.feedback_type = #{feedbackType}
+            </if>
+            <if test="dislikeReason != null and dislikeReason != ''">
+                AND f.dislike_reason = #{dislikeReason}
+            </if>
+            <if test="userId != null">
+                AND f.user_id = #{userId}
+            </if>
+            <if test="startDate != null">
+                AND f.create_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND f.create_date &lt;= #{endDate}
+            </if>
+        </where>
+        ORDER BY f.create_time DESC
+    </select>
+
 </mapper>

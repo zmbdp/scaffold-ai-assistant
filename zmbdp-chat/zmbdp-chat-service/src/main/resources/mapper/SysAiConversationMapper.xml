@@ -133,4 +133,17 @@
         LIMIT 1
     </select>
 
+    <!-- 按 session_id 查询全部对话记录（按 create_time 正序，历史详情接口使用） -->
+    <select id="selectListBySessionId" resultType="com.zmbdp.chat.service.domain.entity.SysAiConversation">
+        SELECT
+            id, session_id, user_id, user_from,
+            question, answer, images, model, sources,
+            temperature, response_time, status, error_msg,
+            create_date, create_time
+        FROM sys_ai_conversation
+        WHERE session_id = #{sessionId}
+          AND is_deleted = 0
+        ORDER BY create_time ASC
+    </select>
+
 </mapper>
