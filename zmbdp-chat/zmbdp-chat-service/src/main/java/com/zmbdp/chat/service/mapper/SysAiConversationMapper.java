@@ -126,4 +126,18 @@ public interface SysAiConversationMapper extends BaseMapper<SysAiConversation> {
      * @return 所有者 userId；sessionId 不存在或已全部软删除时返回 null
      */
     Long selectOwnerUserIdBySessionId(@Param("sessionId") String sessionId);
+
+    /**
+     * 按 session_id 查询全部对话记录（按 create_time 正序）
+     * <p>
+     * 用于历史详情接口 {@code getSessionHistory}，返回该会话的所有问答记录，
+     * 每条记录含 question / answer / images / model / sources / create_time 等字段，
+     * 由 Service 层拆分为 user + assistant 两条 Message。
+     * <p>
+     * 过滤条件：is_deleted=0，不按 status 过滤（FAILED 记录也展示，便于用户查看失败原因）。
+     *
+     * @param sessionId 会话ID
+     * @return 对话记录列表（按 create_time 正序，最早对话在最前）
+     */
+    List<SysAiConversation> selectListBySessionId(@Param("sessionId") String sessionId);
 }
