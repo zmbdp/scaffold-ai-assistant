@@ -65,6 +65,11 @@
         <!-- test 环境服务器上需将 frameworkjava 脚手架放在 /opt/scaffold-ai-assistant/frameworkjava -->
         <knowledge.path>/opt/scaffold-ai-assistant/frameworkjava:/knowledge:ro</knowledge.path>
 
+        <!-- 本地 Embedding 模型挂载路径（test 环境通过 docker-maven-plugin 挂载 ONNX 模型到容器 /models） -->
+        <!-- 格式：宿主机模型路径:/models:ro -->
+        <!-- test 环境服务器上需将模型放在 /opt/scaffold-ai-assistant/deploy/models（由 download-embedding-model.sh 下载） -->
+        <embedding.models.path>/opt/scaffold-ai-assistant/deploy/models:/models:ro</embedding.models.path>
+
         <!--测试环境-->
         <runenv>test</runenv>
         <java.opts.default>-Xmx256m -javaagent:/opt/skywalking/agent/skywalking-agent.jar
