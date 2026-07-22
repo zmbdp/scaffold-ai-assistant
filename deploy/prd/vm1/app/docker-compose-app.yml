@@ -116,12 +116,15 @@ services:
       RUN_ENV: prd
       NACOS_ADDR: 你的云服务器1内网ip/你的虚拟机1内网ip:8854,你的云服务器1内网ip/你的虚拟机1内网ip:8856,你的云服务器2内网ip/你的虚拟机2内网ip:8858
       # SkyWalking Agent 配置
-      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-chat -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx512m -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
+      JAVA_OPTS: -javaagent:/skywalking-agent/skywalking-agent.jar -Dskywalking.agent.service_name=zmbdp-chat -Dskywalking.collector.backend_service=你的云服务器1内网ip/你的虚拟机1内网ip:11800 -Xmx2g -Dspring.cloud.nacos.discovery.ip=你的云服务器1内网ip/你的虚拟机1内网ip
     volumes:
       - ../../skywalking/skywalking-agent:/skywalking-agent  # 挂载 SkyWalking Agent
       # 挂载 frameworkjava 脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取
       # 服务器上需将 frameworkjava 脚手架放在 /opt/scaffold-ai-assistant/frameworkjava
       - /opt/scaffold-ai-assistant/frameworkjava:/knowledge:ro
+      # 挂载本地 Embedding 模型到容器 /models（只读），与脚手架源码分离
+      # 服务器上需将模型放在 /opt/scaffold-ai-assistant/deploy/models（由 download-embedding-model.sh 下载）
+      - /opt/scaffold-ai-assistant/deploy/models:/models:ro
     networks:
       network_prd:
     healthcheck:
