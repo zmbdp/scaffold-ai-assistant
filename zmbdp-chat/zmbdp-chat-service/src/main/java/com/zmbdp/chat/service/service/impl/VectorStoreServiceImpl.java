@@ -15,6 +15,7 @@ import com.zmbdp.chat.service.service.IModelService;
 import com.zmbdp.chat.service.service.IVectorStoreService;
 import com.zmbdp.common.bloomfilter.service.BloomFilterService;
 import com.zmbdp.common.core.utils.JsonUtil;
+import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.snowflake.service.SnowflakeIdService;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.grpc.DataType;
@@ -556,6 +557,8 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
         }
         String collectionName = milvusConfig.getCollectionName();
         EmbeddingModel embeddingModel = modelService.getEmbeddingModel();
+        log.info("开始向量化写入：分块数 = {}, Embedding 模型 = {}", documents.size(),
+                embeddingModel.getClass().getSimpleName());
 
         // 构建列式数据
         List<Long> idList = new ArrayList<>(documents.size());
@@ -569,6 +572,8 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
         // 记录本次写入的 documentId 集合（用于回填布隆过滤器）
         Set<Long> documentIdSet = new HashSet<>();
 
+        long embedStartTime = System.currentTimeMillis();
+        int processed = 0;
         for (Document doc : documents) {
             String content = doc.getText();
             if (content == null || content.isEmpty()) {
@@ -582,12 +587,22 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
 
             // 生成向量（Embedding 调用，可能因网络抖动/超时失败，外层 try-catch 已包裹）
             float[] vector;
+            long singleStart = System.currentTimeMillis();
             try {
                 vector = embeddingModel.embed(content);
+                processed++;
+                if (processed % 10 == 0 || processed == documents.size()) {
+                    log.info("Embedding 进度：{}/{}，本块耗时 = {}ms，累计耗时 = {}ms",
+                            processed, documents.size(),
+                            System.currentTimeMillis() - singleStart,
+                            System.currentTimeMillis() - embedStartTime);
+                }
             } catch (Exception e) {
                 // Embedding 调用失败（如 DashScope 超时），抛出异常让上层 processAddedFile 触发回滚
                 // 避免出现 sys_ai_document 有记录但 Milvus 无向量的数据不一致
-                throw new RuntimeException("Embedding 调用失败，content 长度 = " + content.length(), e);
+                ServiceException se = new ServiceException("Embedding 调用失败，content 长度 = " + content.length());
+                se.initCause(e);
+                throw se;
             }
             List<Float> vectorFloatList = new ArrayList<>(vector.length);
             for (float v : vector) {

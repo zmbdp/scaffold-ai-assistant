@@ -81,17 +81,16 @@ public class StatisticsController implements StatisticsApi {
     /**
      * 获取用户统计
      * <p>
-     * <b>参数说明</b>：当前 IStatisticsService.getUserStats 不接受 days 参数
-     * （固定返回近 7 天活跃用户，与设计文档 7.2.19 节一致），days 参数暂未实现自定义窗口
-     * （后续如需扩展，可增强 Service 层方法签名）。
+     * 返回活跃用户数、Top 活跃用户等指标，活跃用户统计窗口由 days 控制
+     * （为 null 时默认近 7 天）。
      *
-     * @param days 统计天数（暂未实现，预留）
+     * @param days 活跃用户统计窗口（近 N 天，含当天；为 null 时默认 7 天）
      * @return 用户统计 VO
      */
     @Override
     public Result<UserStatisticsVO> getUserStatistics(Integer days) {
-        log.info("获取用户统计：days = {}（当前固定近 7 天，参数预留）", days);
-        UserStatisticsVO vo = statisticsService.getUserStats();
+        log.info("获取用户统计：days = {}", days);
+        UserStatisticsVO vo = statisticsService.getUserStats(days);
         return Result.success(vo);
     }
 
@@ -144,18 +143,17 @@ public class StatisticsController implements StatisticsApi {
     /**
      * 获取回答满意度统计
      * <p>
-     * <b>参数说明</b>：当前 IStatisticsService.getFeedbackStats 不接受日期范围参数
-     * （返回全量反馈统计，与设计文档 7.2.19 节一致），startDate/endDate 参数暂未实现自定义窗口
-     * （后续如需扩展，可增强 Service 层方法签名）。
+     * 返回点赞率、点踩率、反馈率、点踩原因分布等指标，支持按日期范围过滤
+     * （startDate/endDate 为 null 时不加日期过滤，返回全量统计）。
      *
-     * @param startDate 起始日期（暂未实现，预留）
-     * @param endDate   结束日期（暂未实现，预留）
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空）
      * @return 回答满意度统计 VO
      */
     @Override
     public Result<FeedbackStatisticsVO> getFeedbackStatistics(Long startDate, Long endDate) {
-        log.info("获取回答满意度统计：startDate = {}, endDate = {}（当前返回全量统计，参数预留）", startDate, endDate);
-        FeedbackStatisticsVO vo = statisticsService.getFeedbackStats();
+        log.info("获取回答满意度统计：startDate = {}, endDate = {}", startDate, endDate);
+        FeedbackStatisticsVO vo = statisticsService.getFeedbackStats(startDate, endDate);
         return Result.success(vo);
     }
 

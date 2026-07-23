@@ -45,11 +45,13 @@ public interface IStatisticsService {
     /**
      * 用户统计
      * <p>
-     * 返回活跃用户数、使用频次、Top 活跃用户等指标。
+     * 返回活跃用户数、使用频次、Top 活跃用户等指标，活跃用户统计窗口由 days 控制
+     * （为 null 时默认近 7 天）。
      *
+     * @param days 活跃用户统计窗口（近 N 天，含当天；为 null 时默认 7 天）
      * @return 用户统计 VO
      */
-    UserStatisticsVO getUserStats();
+    UserStatisticsVO getUserStats(Integer days);
 
     /**
      * 工具使用统计
@@ -72,11 +74,14 @@ public interface IStatisticsService {
     /**
      * 回答满意度统计
      * <p>
-     * 返回点赞率、点踩率、反馈率、点踩原因分布等指标。
+     * 返回点赞率、点踩率、反馈率、点踩原因分布等指标，支持按日期范围过滤
+     * （startDate/endDate 为 null 时不加日期过滤，返回全量统计）。
      *
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空）
      * @return 回答满意度统计 VO
      */
-    FeedbackStatisticsVO getFeedbackStats();
+    FeedbackStatisticsVO getFeedbackStats(Long startDate, Long endDate);
 
     /*=============================================    内部调用    =============================================*/
 

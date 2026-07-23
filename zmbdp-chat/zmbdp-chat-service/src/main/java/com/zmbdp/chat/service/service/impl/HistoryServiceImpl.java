@@ -1,12 +1,14 @@
 package com.zmbdp.chat.service.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.zmbdp.chat.api.history.domain.vo.HistoryDetailVO;
 import com.zmbdp.chat.api.history.domain.vo.HistoryVO;
 import com.zmbdp.chat.service.domain.entity.SysAiConversation;
 import com.zmbdp.chat.service.mapper.SysAiConversationMapper;
 import com.zmbdp.chat.service.service.IChatMemoryService;
 import com.zmbdp.chat.service.service.IHistoryService;
+import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.domain.domain.ResultCode;
 import com.zmbdp.common.domain.domain.dto.BasePageDTO;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
@@ -19,9 +21,11 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -129,8 +133,16 @@ public class HistoryServiceImpl implements IHistoryService {
     /**
      * 获取会话详情
      * <p>
-     * 先校验 sessionId 归属当前用户，再委托给 {@link IChatMemoryService#getHistory} 获取会话完整对话记录，
-     * getHistory 内部已含 L1 Caffeine → Redis List → DB 降级流程。
+     * 先校验 sessionId 归属当前用户，再从 sys_ai_conversation 表查询该会话的全部问答记录，
+     * 每条记录拆分为 user + assistant 两条 Message，填充全部业务字段
+     * （timestamp / images / sources / model）。
+     * <p>
+     * <b>数据源选择</b>：使用 sys_ai_conversation 表而非 Redis，理由：
+     * <ol>
+     *     <li>表字段齐全（question / answer / images / model / sources / create_time）</li>
+     *     <li>Redis 中的 Spring AI Message 对象只有 getText()，不携带业务字段</li>
+     *     <li>表数据持久可靠，Redis 重启会清空</li>
+     * </ol>
      *
      * @param sessionId 会话ID
      * @param userId    用户ID（用于归属校验）
@@ -146,28 +158,74 @@ public class HistoryServiceImpl implements IHistoryService {
         }
         HistoryDetailVO vo = new HistoryDetailVO();
         vo.setSessionId(sessionId);
-        // 委托给 chatMemoryService.getHistory，内部已含三级降级
-        List<Message> messages = chatMemoryService.getHistory(sessionId);
-        if (CollectionUtils.isEmpty(messages)) {
+        // 从 sys_ai_conversation 表查询全部对话记录（按 create_time 正序）
+        List<SysAiConversation> records = sysAiConversationMapper.selectListBySessionId(sessionId);
+        if (CollectionUtils.isEmpty(records)) {
             vo.setMessages(new ArrayList<>());
             return vo;
         }
-        // 转换为 HistoryDetailVO.Message 列表
-        List<HistoryDetailVO.Message> messageList = new ArrayList<>(messages.size());
-        for (Message message : messages) {
-            HistoryDetailVO.Message msg = new HistoryDetailVO.Message();
-            if (message instanceof UserMessage) {
-                msg.setRole("user");
-            } else if (message instanceof AssistantMessage) {
-                msg.setRole("assistant");
-            } else {
-                msg.setRole("system");
+        // 每条记录拆分为 user + assistant 两条 Message
+        List<HistoryDetailVO.Message> messageList = new ArrayList<>(records.size() * 2);
+        for (SysAiConversation record : records) {
+            // user 消息（用户的提问）
+            HistoryDetailVO.Message userMsg = new HistoryDetailVO.Message();
+            userMsg.setRole("user");
+            userMsg.setContent(record.getQuestion());
+            userMsg.setTimestamp(toEpochMillis(record.getCreateTime()));
+            userMsg.setImages(parseStringListJson(record.getImages()));
+            messageList.add(userMsg);
+            // assistant 消息（AI 的回答）：answer 为空时跳过（FAILED 且无响应的情况）
+            if (StringUtils.hasText(record.getAnswer())) {
+                HistoryDetailVO.Message assistantMsg = new HistoryDetailVO.Message();
+                assistantMsg.setRole("assistant");
+                assistantMsg.setContent(record.getAnswer());
+                assistantMsg.setTimestamp(toEpochMillis(record.getCreateTime()));
+                assistantMsg.setModel(record.getModel());
+                assistantMsg.setSources(parseStringListJson(record.getSources()));
+                messageList.add(assistantMsg);
             }
-            msg.setContent(message.getText());
-            messageList.add(msg);
         }
         vo.setMessages(messageList);
         return vo;
+    }
+
+    /**
+     * LocalDateTime 转换为毫秒时间戳
+     *
+     * @param dateTime LocalDateTime 对象
+     * @return 毫秒时间戳；dateTime 为 null 时返回 null
+     */
+    private Long toEpochMillis(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return null;
+        }
+        return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    /**
+     * 解析 JSON 数组字符串为 List<String>
+     * <p>
+     * 通用方法，用于解析 sys_ai_conversation 表中以 JSON 数组格式存储的字符串字段：
+     * <ul>
+     *     <li>{@code images}：图片 URL 列表（如 {@code ["https://.../img1.png","https://.../img2.jpg"]}）</li>
+     *     <li>{@code sources}：RAG 引用来源列表（如 {@code ["文档1","文档2"]}）</li>
+     * </ul>
+     * 由 chat-service 序列化存入，本接口反序列化为 List 返回前端。
+     *
+     * @param jsonArrayStr JSON 数组字符串
+     * @return 字符串列表；为空或解析失败时返回 null
+     */
+    private List<String> parseStringListJson(String jsonArrayStr) {
+        if (!StringUtils.hasText(jsonArrayStr)) {
+            return null;
+        }
+        try {
+            List<String> list = JsonUtil.jsonToClass(jsonArrayStr, new TypeReference<List<String>>() {});
+            return (list != null && !list.isEmpty()) ? list : null;
+        } catch (Exception e) {
+            log.warn("解析 JSON 数组字符串失败：json = {}", jsonArrayStr, e);
+            return null;
+        }
     }
 
     /**

@@ -40,6 +40,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Service;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
@@ -160,9 +161,29 @@ public class AdminServiceImpl implements IAdminService {
 
     /**
      * Embedding 模型名称（来自 Nacos 配置 spring.ai.dashscope.embedding.model）
+     * <p>
+     * 仅当 {@code scaffold.embedding.provider=dashscope} 时使用，用于回显远程 Embedding 模型名。
      */
     @Value("${spring.ai.dashscope.embedding.model:}")
     private String embeddingModel;
+
+    /**
+     * Embedding 提供方开关（来自 Nacos 配置 scaffold.embedding.provider）
+     * <ul>
+     *     <li>{@code local}：本地 ONNX 模型（免费）</li>
+     *     <li>{@code dashscope}：通义千问远程 Embedding（收费，默认）</li>
+     * </ul>
+     */
+    @Value("${scaffold.embedding.provider:dashscope}")
+    private String embeddingProvider;
+
+    /**
+     * 本地 Embedding 模型名称（来自 Nacos 配置 scaffold.embedding.local.model-name）
+     * <p>
+     * 仅当 {@code scaffold.embedding.provider=local} 时使用，用于回显本地 Embedding 模型名。
+     */
+    @Value("${scaffold.embedding.local.model-name:}")
+    private String localEmbeddingModelName;
 
     /**
      * 工具调用超时时间（秒，来自 Nacos 配置 {@code scaffold.tool.timeout}，默认 30 秒）
@@ -317,7 +338,7 @@ public class AdminServiceImpl implements IAdminService {
         vo.setTopK(parseInt(runtimeConfigMap.get(CONFIG_KEY_TOP_K)));
         vo.setEnableRag(parseBoolean(runtimeConfigMap.get(CONFIG_KEY_ENABLE_RAG)));
         vo.setEnableTools(parseBoolean(runtimeConfigMap.get(CONFIG_KEY_ENABLE_TOOLS)));
-        vo.setEmbeddingModel(StringUtils.hasText(embeddingModel) ? embeddingModel : null);
+        vo.setEmbeddingModel(resolveEmbeddingModelName());
         // 4. api-key 脱敏显示（仅前后4位）
         if (StringUtils.hasText(apiKey)) {
             vo.setApiKey(DesensitizeUtil.desensitize(apiKey, API_KEY_DESENSITIZE_PREFIX, API_KEY_DESENSITIZE_SUFFIX));
@@ -414,9 +435,6 @@ public class AdminServiceImpl implements IAdminService {
      *     <li>从 sys_ai_operation_log 表查询各工具的使用统计（解析 tool_calls JSON 字段，统计 lastUsedTime/usedCount）</li>
      *     <li>构建 ToolVO 列表返回</li>
      * </ol>
-     * <p>
-     * <b>config 字段说明</b>：工具参数配置（如 knowledge.allowed-paths、knowledge.max-file-size 等）
-     * 属基础设施配置，统一在 Nacos 管理，B 端通过 Nacos 配置页面修改，故 ToolVO.config 返回 null。
      *
      * @return 工具 VO 列表
      */
@@ -436,8 +454,6 @@ public class AdminServiceImpl implements IAdminService {
             vo.setName(toolName);
             vo.setDescription(getToolDescription(toolName));
             vo.setEnabled(toolRegistryService.isToolEnabled(toolName));
-            // config 字段：工具参数配置由 Nacos 统一管理，不通过 sys_argument 表，这里返回 null
-            vo.setConfig(null);
             ToolUsageStat stat = usageStats.get(toolName);
             if (stat != null) {
                 vo.setLastUsedTime(stat.lastUsedTime);
@@ -460,13 +476,11 @@ public class AdminServiceImpl implements IAdminService {
      *     <li>触发 ToolRegistryService 刷新工具启用状态</li>
      * </ol>
      * <p>
-     * <b>工具参数配置（dto.config）说明</b>：工具参数配置（如 knowledge.allowed-paths、knowledge.max-file-size 等）
-     * 属基础设施配置，统一在 Nacos 管理，
-     * 不通过 sys_argument 表修改，故本方法仅更新 enabled 状态，dto.config 字段被忽略。
-     * 管理员如需修改工具参数，请通过 Nacos 配置页面修改 {@code knowledge.*} 配置项。
+     * <b>仅支持启用/禁用</b>：本接口只更新工具的 enabled 状态。工具的运行时参数（如 maxFileSize、basePath 等）
+     * 统一通过 Nacos 配置 + {@code @RefreshScope} 管理，不通过此接口修改。
      *
      * @param name 工具名称
-     * @param dto  工具配置更新请求
+     * @param dto  工具配置更新请求（仅含 enabled 字段）
      */
     @Override
     public void updateToolConfig(String name, ToolConfigDTO dto) {
@@ -480,7 +494,6 @@ public class AdminServiceImpl implements IAdminService {
             // 2. 触发 ToolRegistryService 刷新工具启用状态
             toolRegistryService.refreshTool(name, dto.getEnabled());
         }
-        // 工具参数配置（dto.config）由 Nacos 统一管理，不通过 sys_argument 表修改，这里忽略
         log.info("更新工具配置完成：name = {}, enabled = {}", name, dto.getEnabled());
     }
 
@@ -564,10 +577,15 @@ public class AdminServiceImpl implements IAdminService {
      * @param pageNo        页码
      * @param pageSize      每页数量
      * @param operationType AI 操作类型过滤（CHAT/RETRIEVE/EMBEDDING/RERANK，可选）
+     * @param model         模型名称过滤（可选）
+     * @param status        调用状态过滤（可选）
+     * @param startDate     起始日期（YYYYMMDD 格式 Long 值，可选）
+     * @param endDate       结束日期（YYYYMMDD 格式 Long 值，可选）
      * @return 操作日志分页结果
      */
     @Override
-    public BasePageVO<SysAiOperationLog> listOperationLogs(Integer pageNo, Integer pageSize, String operationType) {
+    public BasePageVO<SysAiOperationLog> listOperationLogs(Integer pageNo, Integer pageSize, String operationType,
+                                                           String model, String status, Long startDate, Long endDate) {
         // 参数兜底
         if (pageNo == null || pageNo < 1) {
             pageNo = 1;
@@ -579,6 +597,18 @@ public class AdminServiceImpl implements IAdminService {
         LambdaQueryWrapper<SysAiOperationLog> queryWrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(operationType)) {
             queryWrapper.eq(SysAiOperationLog::getOperationType, operationType);
+        }
+        if (StringUtils.hasText(model)) {
+            queryWrapper.eq(SysAiOperationLog::getModel, model);
+        }
+        if (StringUtils.hasText(status)) {
+            queryWrapper.eq(SysAiOperationLog::getStatus, status);
+        }
+        if (startDate != null) {
+            queryWrapper.ge(SysAiOperationLog::getCreateDate, startDate);
+        }
+        if (endDate != null) {
+            queryWrapper.le(SysAiOperationLog::getCreateDate, endDate);
         }
         queryWrapper.orderByDesc(SysAiOperationLog::getCreateTime);
         // 分页查询
@@ -702,6 +732,21 @@ public class AdminServiceImpl implements IAdminService {
     }
 
     /**
+     * 根据 Embedding 提供方开关解析回显模型名
+     * <p>
+     * {@code scaffold.embedding.provider=local} 时返回本地模型名（bge-small-zh-v1.5），
+     * 否则返回 DashScope 远程模型名（qwen3.7-text-embedding）。
+     *
+     * @return 当前生效的 Embedding 模型名；未配置时返回 null
+     */
+    private String resolveEmbeddingModelName() {
+        if ("local".equalsIgnoreCase(embeddingProvider)) {
+            return StringUtils.hasText(localEmbeddingModelName) ? localEmbeddingModelName : null;
+        }
+        return StringUtils.hasText(embeddingModel) ? embeddingModel : null;
+    }
+
+    /**
      * 安全解析 Double 字符串
      *
      * @param value 字符串值
@@ -813,12 +858,18 @@ public class AdminServiceImpl implements IAdminService {
      * 找到类中标注 {@link Tool} 注解的方法
      * <p>
      * 每个工具类只有一个 @Tool 注解方法，返回第一个匹配的方法。
+     * <p>
+     * <b>CGLIB 代理处理</b>：带 {@code @RefreshScope} 的工具类会被 CGLIB 代理，
+     * {@code toolBean.getClass()} 返回代理类（如 {@code ReadFileTool$$EnhancerByCGLIB$$xxxx}），
+     * 代理类的方法不保留 {@code @Tool} 注解，导致 {@code isAnnotationPresent} 返回 false。
+     * 通过 {@link ClassUtils#getUserClass} 获取代理背后的真实类解决此问题。
      *
-     * @param toolClass 工具类
+     * @param toolClass 工具类（可能是 CGLIB 代理类）
      * @return @Tool 注解方法；不存在返回 null
      */
     private Method findToolMethod(Class<?> toolClass) {
-        for (Method method : toolClass.getMethods()) {
+        Class<?> userClass = ClassUtils.getUserClass(toolClass);
+        for (Method method : userClass.getMethods()) {
             if (method.isAnnotationPresent(Tool.class)) {
                 return method;
             }

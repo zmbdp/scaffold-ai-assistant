@@ -72,4 +72,12 @@ public class ChatWithImageStreamReqDTO implements Serializable {
      * 用户来源（sys/app，由 portal-service 从 JWT 中提取后传入）
      */
     private String userFrom;
+
+    /**
+     * RAG 引用来源（文档标题列表，由 portal-service 检索后透传）
+     * <p>
+     * 用于历史详情展示 assistant 消息时显示引用了哪些文档。
+     * 为空列表表示未命中 RAG 文档。
+     */
+    private List<String> sources;
 }

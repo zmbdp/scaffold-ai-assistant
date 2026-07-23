@@ -394,9 +394,10 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
      */
     @Override
     public SyncResultVO sync(SyncReqDTO dto) {
+        String sourceType = dto != null ? dto.getSourceType() : null;
         boolean force = dto != null && Boolean.TRUE.equals(dto.getForce());
-        log.info("触发知识同步：force = {}", force);
-        return knowledgeLoaderService.syncKnowledge(force);
+        log.info("触发知识同步：sourceType = {}, force = {}", sourceType, force);
+        return knowledgeLoaderService.syncKnowledge(sourceType, force);
     }
 
     /**

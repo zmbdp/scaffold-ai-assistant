@@ -43,18 +43,15 @@ public class OperationLogController implements OperationLogApi {
      * 获取 AI 调用链路日志列表（分页）
      * <p>
      * 列表页仅返回摘要信息（不含完整 prompt/response/toolCalls，避免响应过大）。
-     * <p>
-     * <b>参数说明</b>：当前 IAdminService.listOperationLogs 仅支持按 operationType 过滤
-     * （与设计文档 7.2.20 节一致），model/status/startDate/endDate 参数暂未实现过滤
-     * （后续如需扩展，可增强 Service 层方法签名）。
+     * 支持按操作类型、模型、状态、日期范围过滤（均为可选条件，为空时不加过滤）。
      *
      * @param pageNo        页码
      * @param pageSize      每页数量
-     * @param operationType AI 操作类型过滤
-     * @param model         模型名称过滤（暂未实现，预留）
-     * @param status        调用状态过滤（暂未实现，预留）
-     * @param startDate     开始日期（暂未实现，预留）
-     * @param endDate       结束日期（暂未实现，预留）
+     * @param operationType AI 操作类型过滤（可选）
+     * @param model         模型名称过滤（可选）
+     * @param status        调用状态过滤（可选）
+     * @param startDate     起始日期（YYYYMMDD 格式 Long 值，可选）
+     * @param endDate       结束日期（YYYYMMDD 格式 Long 值，可选）
      * @return 操作日志分页结果
      */
     @Override
@@ -62,8 +59,9 @@ public class OperationLogController implements OperationLogApi {
                                                        String model, String status, Long startDate, Long endDate) {
         log.info("获取 AI 调用链路日志列表：pageNo = {}, pageSize = {}, operationType = {}, model = {}, status = {}, startDate = {}, endDate = {}",
                 pageNo, pageSize, operationType, model, status, startDate, endDate);
-        // 委托给 IAdminService（当前仅支持 operationType 过滤，符合设计文档 7.2.20 节）
-        BasePageVO<SysAiOperationLog> page = adminService.listOperationLogs(pageNo, pageSize, operationType);
+        // 委托给 IAdminService（支持操作类型/模型/状态/日期范围过滤）
+        BasePageVO<SysAiOperationLog> page = adminService.listOperationLogs(pageNo, pageSize, operationType,
+                model, status, startDate, endDate);
         // 转换为 OperationLogVO 列表（列表页仅返回摘要，不含 prompt/response/toolCalls）
         BasePageVO<OperationLogVO> result = convertToOperationLogVOPage(page);
         return Result.success(result);
