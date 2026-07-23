@@ -2,6 +2,7 @@ package com.zmbdp.chat.service.tool;
 
 import com.zmbdp.chat.service.service.INacosConfigService;
 import com.zmbdp.common.core.utils.JsonUtil;
+import com.zmbdp.common.domain.exception.ServiceException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,7 +155,9 @@ public class CompareConfigTool {
             return flatten(loaded, "");
         } catch (Exception e) {
             log.warn("YAML解析失败：env = {}, error = {}", env, e.getMessage());
-            throw new RuntimeException("配置文件格式错误: " + e.getMessage(), e);
+            ServiceException se = new ServiceException("配置文件格式错误: " + e.getMessage());
+            se.initCause(e);
+            throw se;
         }
     }
 

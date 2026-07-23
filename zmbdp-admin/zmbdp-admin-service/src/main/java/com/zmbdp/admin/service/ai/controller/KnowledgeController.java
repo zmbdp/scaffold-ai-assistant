@@ -125,16 +125,21 @@ public class KnowledgeController {
     }
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
      * <p>
+     * 通过 MQ 异步执行知识同步流程，立即返回"已提交"提示。
      * 扫描知识源路径 → 哈希比对增量更新 → 分块 → 向量化 → 写入 Milvus。
+     * <p>
+     * <b>异步化原因</b>：知识同步涉及 Embedding 调用和 Milvus 写入，耗时可能数分钟，
+     * 同步 HTTP 调用会导致前端超时。改为 MQ 异步后，前端收到"已提交"提示，
+     * 通过文档列表（GET /admin/knowledge/documents）查看同步结果。
      *
      * @param dto 同步请求（含 sourceType、force 参数）
-     * @return 同步结果统计
+     * @return 提示信息
      */
     @PostMapping("/sync")
     @LogAction(value = "知识同步", module = "knowledge", recordParams = true)
-    public Result<SyncResultVO> syncKnowledge(@Validated @RequestBody SyncReqDTO dto) {
+    public Result<String> syncKnowledge(@Validated @RequestBody SyncReqDTO dto) {
         return Result.success(aiAdminService.syncKnowledge(dto));
     }
 

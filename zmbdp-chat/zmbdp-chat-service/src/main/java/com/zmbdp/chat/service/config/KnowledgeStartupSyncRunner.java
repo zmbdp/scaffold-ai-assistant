@@ -95,7 +95,7 @@ public class KnowledgeStartupSyncRunner implements ApplicationRunner {
                     Thread.sleep(startupSyncDelayMs);
                 }
                 log.info("启动时知识同步开始：force = {}", startupSyncForce);
-                SyncResultVO result = knowledgeLoaderService.syncKnowledge(startupSyncForce);
+                SyncResultVO result = knowledgeLoaderService.syncKnowledge(null, startupSyncForce);
                 log.info("启动时知识同步完成：total = {}, updated = {}, deleted = {}, skipped = {}, failed = {}, duration = {}ms",
                         result.getTotalDocuments(), result.getUpdatedDocuments(),
                         result.getDeletedDocuments(), result.getSkippedDocuments(),

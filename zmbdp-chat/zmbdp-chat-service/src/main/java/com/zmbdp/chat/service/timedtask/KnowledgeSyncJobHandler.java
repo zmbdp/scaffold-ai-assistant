@@ -112,7 +112,7 @@ public class KnowledgeSyncJobHandler {
         log.info("[XXL-JOB] 知识同步开始：force = {}", force);
 
         try {
-            SyncResultVO result = knowledgeLoaderService.syncKnowledge(force);
+            SyncResultVO result = knowledgeLoaderService.syncKnowledge(null, force);
             String successMsg = String.format(
                     "[XXL-JOB] 知识同步完成：total=%d, updated=%d, deleted=%d, skipped=%d, failed=%d, duration=%dms",
                     result.getTotalDocuments(), result.getUpdatedDocuments(),

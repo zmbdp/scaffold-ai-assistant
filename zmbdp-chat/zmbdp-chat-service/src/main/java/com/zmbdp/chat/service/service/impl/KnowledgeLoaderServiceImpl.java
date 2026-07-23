@@ -9,6 +9,7 @@ import com.zmbdp.chat.service.mapper.SysAiKnowledgeSourceMapper;
 import com.zmbdp.chat.service.service.IKnowledgeLoaderService;
 import com.zmbdp.chat.service.service.IModelService;
 import com.zmbdp.chat.service.service.IVectorStoreService;
+import cn.hutool.http.HtmlUtil;
 import com.zmbdp.common.core.utils.FileUtil;
 import com.zmbdp.common.domain.domain.ResultCode;
 import com.zmbdp.common.domain.exception.ServiceException;
@@ -27,9 +28,12 @@ import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -37,7 +41,7 @@ import java.util.stream.Collectors;
  * <p>
  * 负责知识加载、分块处理；执行知识同步（增量/全量）。
  * <p>
- * <b>核心流程</b>（{@link #syncKnowledge(boolean)} 12 步）：
+ * <b>核心流程</b>（{@link #syncKnowledge(String, boolean)} 12 步）：
  * <ol>
  *     <li>从 sys_ai_knowledge_source 表查询所有 enabled=1 的知识源</li>
  *     <li>遍历每个知识源，按知识源粒度加分布式锁（{@code knowledge:sync:{knowledgeSourceId}}）</li>
@@ -55,11 +59,14 @@ import java.util.stream.Collectors;
  * <p>
  * <b>分块算法</b>（4 种类型）：
  * <ul>
- *     <li>Markdown：按 {@code #}/{@code ##} 章节分块，超长按段落二次切分</li>
+ *     <li>Markdown：按 {@code #}/{@code ##} 章节分块，仅含标题的章节合并到下一章节，超长按 chunkSize 二次切分</li>
  *     <li>Java 源码：按 public/private/protected 方法签名分块（简化版，未用 AST）</li>
- *     <li>JavaDoc HTML：按 class/method 标签分块（简化版）</li>
+ *     <li>JavaDoc HTML：先移除 script/style/nav 等噪音块，再按 {@code <h2>}/{@code <h3>} 切分并清理为纯文本</li>
  *     <li>配置文件：按顶层配置节切分（YAML 顶层 key）</li>
  * </ul>
+ * <p>
+ * <b>分块质量过滤</b>：所有类型分块后统一过滤 trim 长度低于 {@value #MIN_CHUNK_LENGTH} 的无意义短块
+ * （如仅含标题无正文的块），并重新编号 chunk_index，避免占用召回名额。
  * <p>
  * <b>文件操作</b>：复用 {@link FileUtil}（继承 Hutool FileUtil，禁止直接使用 Java NIO）。
  *
@@ -155,6 +162,29 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     private static final String META_CREATE_TIME = "create_time";
 
     /**
+     * 分块最小有效长度（trim 后字符数）
+     * <p>
+     * 低于此长度的分块视为无意义块（如只有 Markdown 标题没有正文的块），不写入 Milvus。
+     * 避免检索时返回只有标题没有内容的块，占用召回名额。
+     */
+    private static final int MIN_CHUNK_LENGTH = 20;
+
+    /**
+     * JavaDoc HTML 中需要整体移除（含标签内全部内容）的噪音块标签
+     * <p>
+     * 这些块对语义检索无贡献，且会占用 Embedding 输入长度与召回名额：
+     * script/style/noscript 为脚本与样式，head 为页面元信息，nav/header/footer 为导航与页眉页脚。
+     */
+    private static final String[] HTML_NOISE_TAGS = {"script", "style", "noscript", "head", "nav", "header", "footer"};
+
+    /**
+     * 匹配 HTML 中首个 {@code <h2>}/{@code <h3>} 标题标签（用于提取章节标题文本）
+     * <p>
+     * 使用预编译 Pattern 提升逐文件分块时的性能。{@code (?is)} 开启忽略大小写与单行模式（. 匹配换行）。
+     */
+    private static final Pattern HEADING_H23_PATTERN = Pattern.compile("(?is)<h[23][^>]*>(.*?)</h[23]>");
+
+    /**
      * 知识源 mapper
      */
     @Autowired
@@ -198,12 +228,12 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * 依次加载 docs/*.md 文档、JavaDoc HTML 文档、Nacos 配置和部署配置文件，
      * 同步写入 MySQL 和 Milvus。
      * <p>
-     * <b>实现说明</b>：等同于 {@link #syncKnowledge(boolean)} 增量同步。
+     * <b>实现说明</b>：等同于 {@link #syncKnowledge(String, boolean)} 增量同步（sourceType=null 表示全部）。
      */
     @Override
     public void loadAllKnowledge() {
         log.info("开始加载所有知识源（增量同步）");
-        SyncResultVO result = syncKnowledge(false);
+        SyncResultVO result = syncKnowledge(null, false);
         log.info("加载所有知识源完成：{}", result);
     }
 
@@ -282,28 +312,34 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             default -> chunkMarkdown(content, chunkSize, chunkOverlap);
         };
 
-        List<Document> result = new ArrayList<>(chunks.size());
-        for (int i = 0; i < chunks.size(); i++) {
-            // 复制原 metadata，并补充 chunk_index
+        // 过滤掉内容过短的无意义分块（如只有标题没有正文的块），并重新编号 chunk_index
+        List<Document> result = new ArrayList<>();
+        int chunkIndex = 0;
+        for (String chunk : chunks) {
+            if (chunk == null || chunk.trim().length() < MIN_CHUNK_LENGTH) {
+                continue;
+            }
             Map<String, Object> chunkMetadata = !metadata.isEmpty() ? new HashMap<>(metadata) : new HashMap<>();
-            chunkMetadata.put(META_CHUNK_INDEX, i);
+            chunkMetadata.put(META_CHUNK_INDEX, chunkIndex++);
             chunkMetadata.put(META_CREATE_TIME, System.currentTimeMillis());
-            result.add(new Document(chunks.get(i), chunkMetadata));
+            result.add(new Document(chunk, chunkMetadata));
         }
-        log.info("文档分块完成：sourceType = {}, 原文长度 = {}, 分块数 = {}", sourceType, content.length(), result.size());
+        log.info("文档分块完成：sourceType = {}, 原文长度 = {}, 分块数 = {}（过滤前 = {}）",
+                sourceType, content.length(), result.size(), chunks.size());
         return result;
     }
 
     /**
      * 执行知识同步
      * <p>
-     * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步。
+     * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步、按知识源类型过滤。
      *
-     * @param force 是否强制全量同步（true=全量跳过哈希检查，false=增量）
+     * @param sourceType 知识源类型过滤（doc/javadoc/config/code，传 null 或 "all" 表示全部）
+     * @param force      是否强制全量同步（true=全量跳过哈希检查，false=增量）
      * @return 同步结果统计
      */
     @Override
-    public SyncResultVO syncKnowledge(boolean force) {
+    public SyncResultVO syncKnowledge(String sourceType, boolean force) {
         long startTime = System.currentTimeMillis();
         SyncResultVO result = new SyncResultVO();
         result.setTotalDocuments(0);
@@ -312,16 +348,20 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         result.setSkippedDocuments(0);
         result.setFailedDocuments(0);
 
-        // 1. 查询所有 enabled=1 的知识源
+        // 1. 查询所有 enabled=1 的知识源（支持 sourceType 过滤）
         LambdaQueryWrapper<SysAiKnowledgeSource> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(SysAiKnowledgeSource::getEnabled, 1);
+        // sourceType 非空且非 "all" 时按类型过滤
+        if (sourceType != null && !sourceType.isEmpty() && !"all".equalsIgnoreCase(sourceType)) {
+            queryWrapper.eq(SysAiKnowledgeSource::getType, sourceType);
+        }
         List<SysAiKnowledgeSource> sources = sysAiKnowledgeSourceMapper.selectList(queryWrapper);
         if (sources == null || sources.isEmpty()) {
-            log.warn("知识同步：未找到 enabled=1 的知识源，跳过");
+            log.warn("知识同步：未找到 enabled = 1 的知识源（sourceType = {}），跳过", sourceType);
             result.setDuration(System.currentTimeMillis() - startTime);
             return result;
         }
-        log.info("知识同步开始：force = {}, 知识源数量 = {}", force, sources.size());
+        log.info("知识同步开始：sourceType = {}, force = {}, 知识源数量 = {}", sourceType, force, sources.size());
 
         for (SysAiKnowledgeSource source : sources) {
             // 2. 按知识源粒度加分布式锁
@@ -448,8 +488,11 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             return;
         }
 
-        // 3. 遍历知识源目录，收集当前所有文件路径
+        // 3. 遍历知识源路径，收集当前所有文件路径（支持 path 指向文件或目录）
         List<File> currentFiles = listFiles(sourcePath, source.getType());
+        if (currentFiles.isEmpty()) {
+            log.warn("知识源 {} 未扫描到匹配文件：sourcePath = {}, type = {}", source.getName(), sourcePath, source.getType());
+        }
         Map<String, File> currentFileMap = new HashMap<>();
         for (File file : currentFiles) {
             currentFileMap.put(file.getAbsolutePath(), file);
@@ -605,7 +648,9 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             } catch (Exception rollbackEx) {
                 log.error("回滚 sys_ai_document 失败，需手动清理：documentId = {}", document.getId(), rollbackEx);
             }
-            throw new RuntimeException("处理新增文件失败：" + file.getAbsolutePath(), e);
+            ServiceException se = new ServiceException("处理新增文件失败：" + file.getAbsolutePath());
+            se.initCause(e);
+            throw se;
         }
     }
 
@@ -619,6 +664,8 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * @param existing MySQL 中已有文档记录
      */
     private void processUpdatedFile(SysAiKnowledgeSource source, File file, SysAiDocument existing) {
+        log.info("开始处理更新文件：path = {}", file.getAbsolutePath());
+        long t0 = System.currentTimeMillis();
         String content = FileUtil.readUtf8String(file);
         String hash = calculateSha256(content);
 
@@ -644,7 +691,7 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             if (!chunks.isEmpty()) {
                 vectorStoreService.addDocuments(chunks);
             }
-            log.info("更新文件处理完成：path = {}, chunkCount = {}", file.getAbsolutePath(), chunks.size());
+            log.info("更新文件处理完成：path = {}, chunkCount = {}, 耗时 = {}ms", file.getAbsolutePath(), chunks.size(), System.currentTimeMillis() - t0);
         } catch (Exception e) {
             // Embedding 或 Milvus 写入失败：旧向量已删，新向量未写入，必须让下次同步重试
             // 清空 hash 让下次同步认为文件"已变更"重新走更新流程（否则 hash 相同会被跳过，永久无向量）
@@ -656,7 +703,9 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             } catch (Exception rollbackEx) {
                 log.error("回滚 sys_ai_document 失败，需手动清理：documentId = {}", existing.getId(), rollbackEx);
             }
-            throw new RuntimeException("处理更新文件失败：" + file.getAbsolutePath(), e);
+            ServiceException se = new ServiceException("处理更新文件失败：" + file.getAbsolutePath());
+            se.initCause(e);
+            throw se;
         }
     }
 
@@ -723,42 +772,74 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     }
 
     /**
-     * 列出指定类型知识源目录下的所有文件
+     * 列出指定类型知识源路径下的所有文件
+     * <p>
+     * 同时支持两种 path 形态：
+     * <ul>
+     *     <li><b>path 指向单个文件</b>（一个文件 = 一个知识源，如 {@code docs/ADD_NEW_MODULE.md}）：
+     *     校验文件扩展名与知识源类型匹配后，返回单元素列表</li>
+     *     <li><b>path 指向目录</b>（一个目录 = 一个知识源）：递归遍历目录下所有匹配扩展名的文件</li>
+     * </ul>
      *
-     * @param sourcePath 知识源根目录
+     * @param sourcePath 知识源路径（文件或目录）
      * @param sourceType 知识源类型
      * @return 文件列表
      */
     private List<File> listFiles(String sourcePath, String sourceType) {
-        File dir = new File(sourcePath);
-        if (!dir.exists() || !dir.isDirectory()) {
+        File file = new File(sourcePath);
+        if (!file.exists()) {
             return new ArrayList<>();
         }
-        // 按知识源类型确定扩展名
-        String[] extensions = switch (sourceType) {
+        String[] extensions = getExtensionsByType(sourceType);
+        // path 指向单个文件：校验扩展名后返回单元素列表
+        if (file.isFile()) {
+            if (matchesExtension(file.getName(), extensions)) {
+                return Collections.singletonList(file);
+            }
+            return new ArrayList<>();
+        }
+        // path 指向目录：递归遍历匹配扩展名的文件
+        if (!file.isDirectory()) {
+            return new ArrayList<>();
+        }
+        return FileUtil.loopFiles(file, f -> f.isFile() && matchesExtension(f.getName(), extensions));
+    }
+
+    /**
+     * 按知识源类型获取匹配的文件扩展名列表
+     *
+     * @param sourceType 知识源类型（doc/javadoc/config/code）
+     * @return 扩展名数组（不含点，全小写）
+     */
+    private String[] getExtensionsByType(String sourceType) {
+        return switch (sourceType) {
             case TYPE_DOC -> new String[]{"md", "markdown"};
             case TYPE_JAVADOC -> new String[]{"html", "htm"};
             case TYPE_CONFIG -> new String[]{"yaml", "yml", "properties"};
-            case TYPE_CODE -> new String[]{"java"};
+            case TYPE_CODE -> new String[]{"java", "xml", "yaml", "yml", "properties"};
             default -> new String[]{"md"};
         };
-        return FileUtil.loopFiles(dir, file -> {
-            if (!file.isFile()) {
-                return false;
-            }
-            String name = file.getName();
-            int dotIdx = name.lastIndexOf('.');
-            if (dotIdx < 0) {
-                return false;
-            }
-            String ext = name.substring(dotIdx + 1).toLowerCase();
-            for (String target : extensions) {
-                if (target.equals(ext)) {
-                    return true;
-                }
-            }
+    }
+
+    /**
+     * 判断文件名扩展名是否匹配给定扩展名列表
+     *
+     * @param fileName   文件名
+     * @param extensions 扩展名列表（不含点，全小写）
+     * @return 匹配返回 true
+     */
+    private boolean matchesExtension(String fileName, String[] extensions) {
+        int dotIdx = fileName.lastIndexOf('.');
+        if (dotIdx < 0) {
             return false;
-        });
+        }
+        String ext = fileName.substring(dotIdx + 1).toLowerCase();
+        for (String target : extensions) {
+            if (target.equals(ext)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -885,8 +966,12 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     /**
      * Markdown 分块算法
      * <p>
-     * 按 {@code #}/{@code ##} 章节切分；超长章节按段落（空行）二次切分；
+     * 按 {@code #}/{@code ##} 章节切分；超长章节按 chunkSize 二次切分；
      * 相邻分块保留 chunkOverlap 字符重叠。
+     * <p>
+     * <b>标题孤立块合并</b>：当某个章节仅含标题行而无正文（如连续多级标题、或标题后紧跟下一个标题），
+     * 会将该章节合并到下一个含正文的章节，避免标题被单独切成无意义短块。
+     * 这样标题可作为上下文随正文一起被检索，提升召回质量。
      *
      * @param content      原文
      * @param chunkSize    分块大小
@@ -894,21 +979,72 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * @return 分块文本列表
      */
     private List<String> chunkMarkdown(String content, int chunkSize, int chunkOverlap) {
-        List<String> chunks = new ArrayList<>();
-        // 按章节标题切分（# 开头的行）
+        // 1. 按章节标题切分（# 开头的行）
+        List<String> sections = new ArrayList<>();
         String[] lines = content.split("\n");
         StringBuilder currentSection = new StringBuilder();
         for (String line : lines) {
             if (line.trim().startsWith("#") && !currentSection.isEmpty()) {
-                chunks.addAll(splitBySize(currentSection.toString(), chunkSize, chunkOverlap));
+                sections.add(currentSection.toString());
                 currentSection = new StringBuilder();
             }
             currentSection.append(line).append("\n");
         }
         if (!currentSection.isEmpty()) {
-            chunks.addAll(splitBySize(currentSection.toString(), chunkSize, chunkOverlap));
+            sections.add(currentSection.toString());
+        }
+        // 2. 合并"仅含标题无正文"的章节到下一个含正文的章节，避免标题被孤立切分
+        //    （如 "## 子标题\n" 后面紧跟 "## 下一个标题\n正文" → 合并为 "## 子标题\n## 下一个标题\n正文"）
+        List<String> merged = new ArrayList<>();
+        StringBuilder pending = new StringBuilder();
+        for (String section : sections) {
+            if (isTitleOnlySection(section)) {
+                // 仅含标题的章节暂存，待与下一个含正文的章节合并
+                pending.append(section);
+            } else {
+                if (pending.length() > 0) {
+                    pending.append(section);
+                    merged.add(pending.toString());
+                    pending = new StringBuilder();
+                } else {
+                    merged.add(section);
+                }
+            }
+        }
+        // 末尾连续仅含标题的章节（无后续正文可合并）保留为独立块，交由 MIN_CHUNK_LENGTH 过滤
+        if (pending.length() > 0) {
+            merged.add(pending.toString());
+        }
+        // 3. 按大小切分
+        List<String> chunks = new ArrayList<>();
+        for (String section : merged) {
+            chunks.addAll(splitBySize(section, chunkSize, chunkOverlap));
         }
         return chunks;
+    }
+
+    /**
+     * 判断 Markdown 章节是否仅含标题行（无正文内容）
+     * <p>
+     * 仅含 {@code #} 开头的标题行和空行的章节视为无正文。这类章节会被合并到下一个含正文的章节，
+     * 避免标题被单独切成无意义短块。
+     *
+     * @param section 章节文本
+     * @return true 表示仅含标题行（无正文）
+     */
+    private boolean isTitleOnlySection(String section) {
+        if (section == null || section.isEmpty()) {
+            return true;
+        }
+        for (String line : section.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            // 存在非标题、非空行 → 有正文
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -946,25 +1082,114 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     }
 
     /**
-     * JavaDoc HTML 分块算法（简化版）
+     * JavaDoc HTML 分块算法
      * <p>
-     * 按 {@code <class>}/{@code <method>} 标签切分；超长按段落二次切分。
+     * 先整体移除 script/style/noscript/head/nav/header/footer 等纯结构噪音块，
+     * 再按 {@code <h2>}/{@code <h3>} 标签切分章节，最后将每个章节清理为纯文本
+     * （剥离 HTML 标签、反转义 HTML 实体、折叠多余空白），并把章节标题前置为 Markdown 标记。
+     * <p>
+     * <b>为什么需要清理 HTML 噪音</b>：原始 JavaDoc HTML 中大量 {@code <a>}/{@code <code>}/{@code <div>}
+     * 标签和导航链接会稀释语义内容，导致 Embedding 向量被 HTML 语法噪音主导，召回时占用名额却返回低质量块。
+     * 清理后每个分块为纯净的类/方法说明文本，显著提升检索相关性。
      *
-     * @param content      原文
+     * @param content      原文（HTML）
      * @param chunkSize    分块大小
      * @param chunkOverlap 重叠字符数
-     * @return 分块文本列表
+     * @return 分块文本列表（纯文本）
      */
     private List<String> chunkJavaDoc(String content, int chunkSize, int chunkOverlap) {
         List<String> chunks = new ArrayList<>();
-        // 简化：按 <h2>/<h3> 标签切分
-        String[] sections = content.split("(?=<h[23])");
+        // 1. 整体移除 script/style/noscript/head/nav/header/footer 等噪音块（含标签内全部内容）
+        String cleaned = stripHtmlNoiseBlocks(content);
+        // 2. 按 <h2>/<h3> 切分（保留章节结构，标题与所属正文在同一块）
+        String[] sections = cleaned.split("(?=<h[23])");
         for (String section : sections) {
-            if (!section.trim().isEmpty()) {
-                chunks.addAll(splitBySize(section, chunkSize, chunkOverlap));
+            // 3. 清理为纯文本：提取标题 → 剥离标签 → 反转义实体 → 折叠空白
+            String text = cleanHtmlSectionToText(section);
+            if (text != null && !text.trim().isEmpty()) {
+                chunks.addAll(splitBySize(text, chunkSize, chunkOverlap));
             }
         }
         return chunks;
+    }
+
+    /**
+     * 整体移除 JavaDoc HTML 中的纯结构噪音块
+     * <p>
+     * 移除 {@link #HTML_NOISE_TAGS} 中列出的标签（含标签内的全部内容），如 script/style/noscript/head/nav 等。
+     * 这些块对语义检索无贡献，保留会占用 Embedding 输入长度与召回名额。
+     *
+     * @param html 原始 HTML
+     * @return 移除噪音块后的 HTML
+     */
+    private String stripHtmlNoiseBlocks(String html) {
+        String result = html;
+        for (String tag : HTML_NOISE_TAGS) {
+            // (?is)：i=忽略大小写，s=单行模式（. 匹配换行，确保跨行块被整体匹配）
+            result = result.replaceAll("(?is)<" + tag + "\\b[^>]*>.*?</" + tag + "\\s*>", "");
+        }
+        return result;
+    }
+
+    /**
+     * 将 HTML 章节片段清理为纯文本
+     * <p>
+     * 流程：提取首个 {@code <h2>}/{@code <h3>} 标题文本 → 复用 Hutool {@link HtmlUtil} 剥离所有 HTML 标签
+     * → 反转义 HTML 实体（{@code &nbsp;}/{@code &lt;} 等）→ 折叠多余空白。
+     * <p>
+     * 若提取到标题，前置为 {@code ## 标题文本}，便于 Embedding 模型识别章节语义。
+     *
+     * @param html HTML 章节片段
+     * @return 纯文本（可能为空字符串）
+     */
+    private String cleanHtmlSectionToText(String html) {
+        if (html == null || html.isEmpty()) {
+            return "";
+        }
+        // 提取首个 h2/h3 标题文本（保留章节语义作为分块标题）
+        String heading = extractFirstHeading(html);
+        // 剥离所有 HTML 标签（复用 Hutool HtmlUtil，避免重复造轮子）
+        String text = HtmlUtil.cleanHtmlTag(html);
+        // 反转义 HTML 实体（&nbsp; &lt; &gt; &amp; 等）
+        text = HtmlUtil.unescape(text);
+        // 折叠多余空白（连续空白/换行压缩为单个空格）
+        text = collapseWhitespace(text);
+        // 标题前置为 Markdown 标记，便于语义识别
+        if (StringUtils.hasText(heading) && StringUtils.hasText(text)) {
+            text = "## " + heading + "\n" + text;
+        }
+        return text;
+    }
+
+    /**
+     * 提取 HTML 中首个 {@code <h2>}/{@code <h3>} 标签的纯文本内容
+     * <p>
+     * 用于在清理 HTML 标签前先捕获章节标题，清理后前置为 Markdown 标记。
+     *
+     * @param html HTML 片段
+     * @return 标题纯文本（无标签、无多余空白）；无匹配返回空字符串
+     */
+    private String extractFirstHeading(String html) {
+        Matcher matcher = HEADING_H23_PATTERN.matcher(html);
+        if (matcher.find()) {
+            String inner = HtmlUtil.cleanHtmlTag(matcher.group(1));
+            inner = HtmlUtil.unescape(inner);
+            return inner.replaceAll("\\s+", " ").trim();
+        }
+        return "";
+    }
+
+    /**
+     * 折叠多余空白：连续空白字符（含换行、制表符）压缩为单个空格，并去除首尾空白
+     *
+     * @param text 原始文本
+     * @return 折叠后的文本
+     */
+    private String collapseWhitespace(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replaceAll("\\s+", " ").trim();
     }
 
     /**

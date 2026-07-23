@@ -4,12 +4,11 @@ import lombok.Data;
 
 import java.io.Serial;
 import java.io.Serializable;
-import java.util.Map;
 
 /**
  * Agent 工具 VO
  * <p>
- * 展示已注册的工具列表，含工具名称、描述、启用状态、配置参数、使用统计等。
+ * 展示已注册的工具列表，含工具名称、描述、启用状态、使用统计等。
  *
  * @author 稚名不带撇
  */
@@ -33,11 +32,6 @@ public class ToolVO implements Serializable {
      * 是否启用
      */
     private Boolean enabled;
-
-    /**
-     * 工具配置参数（因工具类型而异）
-     */
-    private Map<String, Object> config;
 
     /**
      * 最后使用时间（时间戳，毫秒）

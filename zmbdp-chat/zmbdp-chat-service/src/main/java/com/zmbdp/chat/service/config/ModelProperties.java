@@ -20,7 +20,7 @@ import java.util.List;
  *   ai:
  *     models:
  *       - type: TEXT_ONLY
- *         name: deepseek-v4-flash
+ *         name: qwen3.7-plus-2026-05-26
  *         provider: dashscope
  *         enabled: true
  *         default-model: true

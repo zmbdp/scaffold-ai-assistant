@@ -148,8 +148,7 @@ public class StatisticsServiceImpl implements IStatisticsService {
         vo.setTodayConversations(sysAiConversationMapper.countTodayConversations(today));
         vo.setAvgResponseTime(sysAiConversationMapper.avgResponseTime());
         // 活跃用户数：近 7 天有对话记录的用户
-        Long activeStartDate = Long.parseLong(LocalDate.now().minusDays(ACTIVE_USER_DAYS - 1).format(DATE_FORMATTER));
-        vo.setActiveUsers(sysAiConversationMapper.countActiveUsers(activeStartDate));
+        vo.setActiveUsers(sysAiConversationMapper.countActiveUsers(ACTIVE_USER_DAYS));
         // 趋势数据：近 7 天每日对话数
         Long trendStartDate = Long.parseLong(LocalDate.now().minusDays(TREND_DAYS - 1).format(DATE_FORMATTER));
         List<Map<String, Object>> trendRows = sysAiConversationMapper.countDailyTrend(trendStartDate);
@@ -190,25 +189,31 @@ public class StatisticsServiceImpl implements IStatisticsService {
     /**
      * 用户统计
      *
+     * @param days 活跃用户统计窗口（近 N 天，含当天；为 null 或非正数时默认 7 天）
      * @return 用户统计 VO
      */
     @Override
-    public UserStatisticsVO getUserStats() {
+    public UserStatisticsVO getUserStats(Integer days) {
+        // days 为 null 或非正数时默认近 7 天
+        if (days == null || days <= 0) {
+            days = ACTIVE_USER_DAYS;
+        }
+        // 按天数构建缓存 key，避免不同窗口的统计结果互相覆盖
+        String cacheKey = CACHE_KEY_USERS + ":" + days;
         // 1. 尝试读取缓存
-        UserStatisticsVO cached = redisService.getCacheObject(CACHE_KEY_USERS,
+        UserStatisticsVO cached = redisService.getCacheObject(cacheKey,
                 new TypeReference<UserStatisticsVO>() {});
         if (cached != null) {
             return cached;
         }
         // 2. 查询数据库
         UserStatisticsVO vo = new UserStatisticsVO();
-        Long activeStartDate = Long.parseLong(LocalDate.now().minusDays(ACTIVE_USER_DAYS - 1).format(DATE_FORMATTER));
-        vo.setActiveUsers(sysAiConversationMapper.countActiveUsers(activeStartDate));
+        vo.setActiveUsers(sysAiConversationMapper.countActiveUsers(days));
         vo.setTotalUsers(sysAiConversationMapper.countTotalUsers());
         List<UserStatisticsVO.TopUser> topUsers = sysAiConversationMapper.selectTopUsers(TOP_USERS_LIMIT);
         vo.setTopUsers(topUsers != null ? topUsers : new ArrayList<>());
         // 3. 写入缓存
-        redisService.setCacheObject(CACHE_KEY_USERS, vo, STATS_CACHE_TTL, TimeUnit.SECONDS);
+        redisService.setCacheObject(cacheKey, vo, STATS_CACHE_TTL, TimeUnit.SECONDS);
         return vo;
     }
 
@@ -278,24 +283,29 @@ public class StatisticsServiceImpl implements IStatisticsService {
     /**
      * 回答满意度统计
      * <p>
-     * 基于 sys_ai_feedback 表聚合统计回答满意度。
+     * 基于 sys_ai_feedback 表聚合统计回答满意度，支持按日期范围过滤
+     * （startDate/endDate 为 null 时不加日期过滤，返回全量统计）。
      *
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空）
      * @return 回答满意度统计 VO
      */
     @Override
-    public FeedbackStatisticsVO getFeedbackStats() {
+    public FeedbackStatisticsVO getFeedbackStats(Long startDate, Long endDate) {
+        // 按日期范围构建缓存 key，避免不同过滤条件的结果互相覆盖
+        String cacheKey = CACHE_KEY_FEEDBACK + ":" + startDate + ":" + endDate;
         // 1. 尝试读取缓存
-        FeedbackStatisticsVO cached = redisService.getCacheObject(CACHE_KEY_FEEDBACK,
+        FeedbackStatisticsVO cached = redisService.getCacheObject(cacheKey,
                 new TypeReference<FeedbackStatisticsVO>() {});
         if (cached != null) {
             return cached;
         }
         // 2. 查询数据库
         FeedbackStatisticsVO vo = new FeedbackStatisticsVO();
-        Long likeCount = sysAiFeedbackMapper.countByType(FEEDBACK_LIKE);
-        Long dislikeCount = sysAiFeedbackMapper.countByType(FEEDBACK_DISLIKE);
-        Long totalFeedback = sysAiFeedbackMapper.countTotalFeedback();
-        Long feedbackUsers = sysAiFeedbackMapper.countFeedbackUsers();
+        Long likeCount = sysAiFeedbackMapper.countByType(FEEDBACK_LIKE, startDate, endDate);
+        Long dislikeCount = sysAiFeedbackMapper.countByType(FEEDBACK_DISLIKE, startDate, endDate);
+        Long totalFeedback = sysAiFeedbackMapper.countTotalFeedback(startDate, endDate);
+        Long feedbackUsers = sysAiFeedbackMapper.countFeedbackUsers(startDate, endDate);
         Long totalConversations = sysAiConversationMapper.countTotalConversationsForFeedback();
         vo.setLikeCount(likeCount != null ? likeCount : 0L);
         vo.setDislikeCount(dislikeCount != null ? dislikeCount : 0L);
@@ -316,10 +326,10 @@ public class StatisticsServiceImpl implements IStatisticsService {
             vo.setFeedbackRate(0.0);
         }
         // 点踩原因分布
-        List<Map<String, Object>> distRows = sysAiFeedbackMapper.countDislikeReasonDistribution();
+        List<Map<String, Object>> distRows = sysAiFeedbackMapper.countDislikeReasonDistribution(startDate, endDate);
         vo.setDislikeReasonDistribution(buildDislikeReasonDistribution(distRows, vo.getDislikeCount()));
         // 3. 写入缓存
-        redisService.setCacheObject(CACHE_KEY_FEEDBACK, vo, STATS_CACHE_TTL, TimeUnit.SECONDS);
+        redisService.setCacheObject(cacheKey, vo, STATS_CACHE_TTL, TimeUnit.SECONDS);
         return vo;
     }
 

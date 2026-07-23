@@ -136,9 +136,14 @@ public interface IAdminService {
      * @param pageNo        页码
      * @param pageSize      每页数量
      * @param operationType AI 操作类型过滤（CHAT/RETRIEVE/EMBEDDING/RERANK，可选）
+     * @param model         模型名称过滤（可选）
+     * @param status        调用状态过滤（可选）
+     * @param startDate     起始日期（YYYYMMDD 格式 Long 值，可选）
+     * @param endDate       结束日期（YYYYMMDD 格式 Long 值，可选）
      * @return 操作日志分页结果
      */
-    BasePageVO<SysAiOperationLog> listOperationLogs(Integer pageNo, Integer pageSize, String operationType);
+    BasePageVO<SysAiOperationLog> listOperationLogs(Integer pageNo, Integer pageSize, String operationType,
+                                                     String model, String status, Long startDate, Long endDate);
 
     /**
      * 查询单次 AI 调用详情

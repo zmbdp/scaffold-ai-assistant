@@ -9,6 +9,7 @@ import com.zmbdp.chat.api.ai.domain.vo.ToolTestResultVO;
 import com.zmbdp.chat.api.ai.domain.vo.ToolVO;
 import com.zmbdp.chat.api.chat.domain.dto.RetrieveReqDTO;
 import com.zmbdp.chat.api.chat.domain.vo.DocumentVO;
+import com.zmbdp.chat.api.feedback.domain.vo.FeedbackAdminVO;
 import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
@@ -83,12 +84,15 @@ public interface IAiAdminService {
     void deleteSource(Long id);
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
+     * <p>
+     * 通过 MQ 发送同步消息，立即返回"已提交"提示。
+     * chat-service 消费端异步执行同步流程，前端通过文档列表查看同步结果。
      *
-     * @param dto 同步请求
-     * @return 同步结果统计
+     * @param dto 同步请求（含 sourceType、force 参数）
+     * @return 提示信息（如"知识同步任务已提交，请稍后通过文档列表查看同步结果"）
      */
-    SyncResultVO syncKnowledge(SyncReqDTO dto);
+    String syncKnowledge(SyncReqDTO dto);
 
     /**
      * 获取文档列表（分页）
@@ -262,6 +266,27 @@ public interface IAiAdminService {
      * @return 回答满意度统计 VO
      */
     FeedbackStatisticsVO getFeedbackStatistics(Long startDate, Long endDate);
+
+    /* ============================================= 反馈管理 ============================================= */
+
+    /**
+     * B 端反馈明细分页查询
+     * <p>
+     * 通过 Feign 调用 chat-service 的 {@code FeedbackApi.listFeedbacks()}，
+     * 单条记录同时返回反馈信息 + 对话问答摘要（question / answerSummary / model / sources）。
+     *
+     * @param pageNo        页码（默认 1）
+     * @param pageSize      每页数量（默认 20）
+     * @param feedbackType  反馈类型过滤（LIKE/DISLIKE，可选）
+     * @param dislikeReason 点踩原因过滤（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER，可选）
+     * @param userId        用户ID过滤（可选）
+     * @param startDate     起始日期（格式：20260712，可选）
+     * @param endDate       结束日期（格式：20260712，可选）
+     * @return 反馈明细分页结果
+     */
+    BasePageVO<FeedbackAdminVO> listFeedbacks(Integer pageNo, Integer pageSize,
+                                               String feedbackType, String dislikeReason,
+                                               Long userId, Long startDate, Long endDate);
 
     /* ============================================= 系统管理 ============================================= */
 

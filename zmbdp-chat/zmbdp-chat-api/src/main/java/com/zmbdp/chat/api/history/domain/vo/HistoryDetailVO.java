@@ -54,9 +54,12 @@ public class HistoryDetailVO implements Serializable {
         private Long timestamp;
 
         /**
-         * 是否含图片
+         * 图片 URL 列表（仅 user 消息有效，图文对话时由 portal-service 上传 OSS 后透传）
+         * <p>
+         * 数据库 sys_ai_conversation.images 字段以 JSON 数组格式存储，此处反序列化为 List。
+         * 纯文本对话或 assistant 消息该字段为 null。
          */
-        private Boolean hasImage;
+        private List<String> images;
 
         /**
          * 引用来源（仅 assistant 消息，RAG 检索命中的文档列表）

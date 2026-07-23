@@ -1,14 +1,21 @@
 package com.zmbdp.chat.service.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.zmbdp.chat.api.feedback.domain.dto.FeedbackReqDTO;
+import com.zmbdp.chat.api.feedback.domain.vo.FeedbackAdminVO;
 import com.zmbdp.chat.api.feedback.domain.vo.FeedbackVO;
 import com.zmbdp.chat.service.domain.entity.SysAiFeedback;
 import com.zmbdp.chat.service.mapper.SysAiFeedbackMapper;
 import com.zmbdp.chat.service.service.IFeedbackService;
 import com.zmbdp.common.core.utils.BeanCopyUtil;
+import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.core.utils.StringUtil;
 import com.zmbdp.common.domain.domain.ResultCode;
+import com.zmbdp.common.domain.domain.dto.BasePageDTO;
+import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.snowflake.service.SnowflakeIdService;
 import lombok.extern.slf4j.Slf4j;
@@ -16,10 +23,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -52,6 +61,11 @@ public class FeedbackServiceImpl implements IFeedbackService {
      * 日期格式化器（YYYYMMDD，与脚手架统一）
      */
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 默认每页数量（与 AdminServiceImpl.listOperationLogs 一致）
+     */
+    private static final int DEFAULT_PAGE_SIZE = 20;
 
     /**
      * 反馈 mapper
@@ -164,6 +178,55 @@ public class FeedbackServiceImpl implements IFeedbackService {
         log.info("撤销反馈：conversationId = {}, userId = {}, 删除行数 = {}", conversationId, userId, rows);
     }
 
+    /*=============================================    B端调用    =============================================*/
+
+    /**
+     * B 端反馈明细分页查询
+     * <p>
+     * 调用 {@link SysAiFeedbackMapper#selectFeedbackListPage} 执行联表查询，
+     * SQL 层已截断 question（LEFT 100 字）和 answer（LEFT 200 字）。
+     * Service 层负责将 sourcesJson（JSON 字符串）反序列化为 List&lt;String&gt; 后塞入 sources 字段。
+     *
+     * @param pageNo        页码（兜底默认 1）
+     * @param pageSize      每页数量（兜底默认 20）
+     * @param feedbackType  反馈类型过滤（LIKE/DISLIKE，可空）
+     * @param dislikeReason 点踩原因过滤（OUTDATED/IRRELEVANT/CODE_ERROR/OTHER，可空）
+     * @param userId        用户ID过滤（可空）
+     * @param startDate     起始日期（格式：20260712，可空）
+     * @param endDate       结束日期（格式：20260712，可空）
+     * @return 反馈明细分页结果
+     */
+    @Override
+    public BasePageVO<FeedbackAdminVO> listFeedbacks(Integer pageNo, Integer pageSize,
+                                                      String feedbackType, String dislikeReason,
+                                                      Long userId, Long startDate, Long endDate) {
+        // 参数兜底
+        if (pageNo == null || pageNo < 1) {
+            pageNo = 1;
+        }
+        if (pageSize == null || pageSize < 1) {
+            pageSize = DEFAULT_PAGE_SIZE;
+        }
+        // 分页查询（MyBatis-Plus 分页插件自动注入 LIMIT）
+        Page<FeedbackAdminVO> page = new Page<>(pageNo, pageSize);
+        IPage<FeedbackAdminVO> result = sysAiFeedbackMapper.selectFeedbackListPage(
+                page, feedbackType, dislikeReason, userId, startDate, endDate);
+        // 反序列化 sourcesJson → sources（List<String>）
+        List<FeedbackAdminVO> records = result.getRecords();
+        if (records != null && !records.isEmpty()) {
+            for (FeedbackAdminVO vo : records) {
+                vo.setSources(parseStringListJson(vo.getSourcesJson()));
+                vo.setSourcesJson(null);
+            }
+        }
+        // 封装 BasePageVO 返回
+        BasePageVO<FeedbackAdminVO> vo = new BasePageVO<>();
+        vo.setTotals(result.getTotal() > 0 ? (int) result.getTotal() : 0);
+        vo.setTotalPages(BasePageDTO.calculateTotalPages(result.getTotal(), pageSize));
+        vo.setList(records != null ? records : new ArrayList<>());
+        return vo;
+    }
+
     /*=============================================    私有方法    =============================================*/
 
     /**
@@ -176,5 +239,27 @@ public class FeedbackServiceImpl implements IFeedbackService {
         FeedbackVO vo = new FeedbackVO();
         BeanCopyUtil.copyProperties(feedback, vo);
         return vo;
+    }
+
+    /**
+     * 解析 JSON 数组字符串为 List&lt;String&gt;
+     * <p>
+     * 用于解析 sys_ai_conversation.sources 字段（JSON 数组格式，如 {@code ["文档1","文档2"]}）。
+     * 与 HistoryServiceImpl.parseStringListJson 逻辑一致，保持项目内反序列化方式统一。
+     *
+     * @param jsonArrayStr JSON 数组字符串
+     * @return 字符串列表；为空或解析失败时返回 null
+     */
+    private List<String> parseStringListJson(String jsonArrayStr) {
+        if (!StringUtils.hasText(jsonArrayStr)) {
+            return null;
+        }
+        try {
+            List<String> list = JsonUtil.jsonToClass(jsonArrayStr, new TypeReference<List<String>>() {});
+            return (list != null && !list.isEmpty()) ? list : null;
+        } catch (Exception e) {
+            log.warn("解析 JSON 数组字符串失败：json = {}", jsonArrayStr, e);
+            return null;
+        }
     }
 }

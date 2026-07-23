@@ -11,20 +11,29 @@ import com.zmbdp.chat.api.chat.domain.dto.ChatWithImageStreamReqDTO;
 import com.zmbdp.chat.service.config.DashScopeVisionConfig;
 import com.zmbdp.chat.service.config.ModelConfig;
 import com.zmbdp.chat.service.domain.entity.SysAiConversation;
+import com.zmbdp.chat.service.domain.entity.SysAiOperationLog;
+import com.zmbdp.chat.service.mapper.SysAiOperationLogMapper;
 import com.zmbdp.chat.service.service.IChatMemoryService;
 import com.zmbdp.chat.service.service.IChatService;
 import com.zmbdp.chat.service.service.IHistoryService;
 import com.zmbdp.chat.service.service.IModelService;
 import com.zmbdp.chat.service.service.ToolRegistryService;
+import com.zmbdp.chat.service.tool.ToolCallRecorder;
 import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.domain.domain.ResultCode;
+import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.snowflake.service.SnowflakeIdService;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
@@ -45,6 +54,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 对话核心服务实现类
@@ -110,6 +120,17 @@ public class ChatServiceImpl implements IChatService {
      */
     @Autowired
     private IHistoryService historyService;
+
+    /**
+     * AI 调用链路日志 mapper（写入 sys_ai_operation_log 表）
+     * <p>
+     * 在流式对话完成后异步写入，用于 AI 调用统计、用户使用量查询、调用链路追溯。
+     * <p>
+     * <b>已支持字段</b>：promptTokens / completionTokens / totalTokens（来自 Spring AI Usage）、
+     * toolCalls（由 {@link ToolCallRecorder} 装饰器收集工具调用链路）。
+     */
+    @Autowired
+    private SysAiOperationLogMapper sysAiOperationLogMapper;
 
     /**
      * Agent 工具注册服务
@@ -211,6 +232,12 @@ public class ChatServiceImpl implements IChatService {
         // Step 5: 调用 ChatClient.stream() 流式生成
         StringBuilder fullResponse = new StringBuilder();
         final String finalModelName = modelName;
+        // Usage 持有器：DashScope 在流式响应最后一帧返回 usage（累计值），每个 ChatResponse 都检查并覆盖
+        // 使用 AtomicReference 是因为 lambda 闭包要求 effectively final，且 reactor 链路可能跨线程切换
+        final AtomicReference<Usage> usageRef = new AtomicReference<>();
+        // 工具调用记录持有器：ToolCallRecorder 装饰器在工具被调用时记录 name/args/result/duration/success，
+        // doOnComplete 时 drainRecords 取出 JSON 数组写入 sys_ai_operation_log.tool_calls 字段
+        final List<ToolCallRecorder> toolRecorders = new ArrayList<>();
         // 显式指定模型名，覆盖 DashScopeAutoConfiguration 中 spring.ai.dashscope.chat.model 的默认值
         // 这样修改 spring.ai.models[*].name 才能真正切换模型，而不是被默认 model 固定
         DashScopeChatOptions chatOptions = DashScopeChatOptions.builder()
@@ -220,33 +247,54 @@ public class ChatServiceImpl implements IChatService {
                 .options(chatOptions)
                 .messages(messages);
         if (!CollectionUtils.isEmpty(enabledToolBeans)) {
-            // 配置已启用的工具 Bean，Spring AI 通过 MethodToolCallbackProvider 自动扫描 @Tool 注解方法
-            requestSpec = requestSpec.tools(enabledToolBeans.toArray());
+            // 将工具 Bean 转为 ToolCallback 数组，用 ToolCallRecorder 装饰器包装以记录调用链路
+            // 用 toolCallbacks(ToolCallback...) 替代 tools(Object...)：前者显式传入 callback 实例，
+            // Spring AI 不再自动扫描 @Tool 注解，而是直接调用传入的 callback（含装饰器逻辑）
+            ToolCallback[] originalCallbacks = ToolCallbacks.from(enabledToolBeans.toArray());
+            List<ToolCallback> wrappedCallbacks = new ArrayList<>(originalCallbacks.length);
+            for (ToolCallback original : originalCallbacks) {
+                ToolCallRecorder recorder = ToolCallRecorder.wrap(original);
+                toolRecorders.add(recorder);
+                wrappedCallbacks.add(recorder);
+            }
+            requestSpec = requestSpec.toolCallbacks(wrappedCallbacks.toArray(new ToolCallback[0]));
         }
+        // 用 .chatResponse() 替代 .content()：前者返回 Flux<ChatResponse> 含 metadata.usage，后者只返回字符串丢弃 Usage
         return requestSpec.stream()
-                .content()
-                .doOnNext(chunk -> {
-                    if (chunk != null) {
-                        fullResponse.append(chunk);
+                .chatResponse()
+                .doOnNext(chatResponse -> {
+                    // 累积响应内容
+                    String content = chatResponse.getResult().getOutput().getText();
+                    if (content != null) {
+                        fullResponse.append(content);
+                    }
+                    // 捕获 Usage（最后一帧才真正含 usage，前面的帧 usage 可能为 null，覆盖即可）
+                    Usage usage = chatResponse.getMetadata().getUsage();
+                    if (usage != null) {
+                        usageRef.set(usage);
                     }
                 })
-                .map(this::buildContentFrame)
+                .map(chatResponse -> buildContentFrame(chatResponse.getResult().getOutput().getText()))
                 .doOnComplete(() -> {
                     // Step 6-8: 异步保存对话历史到 Redis + 记录到 MySQL
                     long responseTime = System.currentTimeMillis() - startTime;
+                    Usage usage = usageRef.get();
+                    // 收集本次对话的工具调用记录（JSON 数组字符串，无调用时为 null）
+                    String toolCallsJson = drainToolCallRecords(toolRecorders);
                     CompletableFuture.runAsync(() -> saveConversation(
                             request, sessionId, fullResponse.toString(),
-                            finalModelName, responseTime, STATUS_SUCCESS, null));
+                            finalModelName, responseTime, STATUS_SUCCESS, null, usage, toolCallsJson));
                 })
                 .onErrorResume(e -> {
                     // 错误处理：返回错误帧
                     long responseTime = System.currentTimeMillis() - startTime;
                     String errorMsg = e.getMessage();
                     log.error("流式对话失败：sessionId = {}, error = {}", sessionId, errorMsg, e);
-                    // 异步保存失败记录
+                    // 异步保存失败记录（失败时无 Usage）
+                    String toolCallsJson = drainToolCallRecords(toolRecorders);
                     CompletableFuture.runAsync(() -> saveConversation(
                             request, sessionId, fullResponse.toString(),
-                            finalModelName, responseTime, STATUS_FAILED, errorMsg));
+                            finalModelName, responseTime, STATUS_FAILED, errorMsg, null, toolCallsJson));
                     return Flux.just(buildErrorFrame(ResultCode.AI_SERVICE_CONNECT_FAILED));
                 })
                 .concatWith(Flux.just(buildEndFrame(sessionId, finalModelName)));
@@ -343,6 +391,9 @@ public class ChatServiceImpl implements IChatService {
         // Step 4: 调用 DashScope OpenAI 兼容模式端点（流式）
         StringBuilder fullResponse = new StringBuilder();
         final String finalModelName = modelName;
+        // Usage 持有器：长度 3 的 long 数组，分别对应 promptTokens / completionTokens / totalTokens
+        // DashScope OpenAI 兼容模式在流式响应最后一帧返回 usage（累计值），每帧都尝试解析并覆盖
+        final AtomicReference<long[]> usageRef = new AtomicReference<>();
 
         return dashscopeVisionWebClient.post()
                 .uri(DashScopeVisionConfig.CHAT_COMPLETIONS_PATH)
@@ -353,8 +404,14 @@ public class ChatServiceImpl implements IChatService {
                 .bodyToFlux(String.class)
                 .doOnEach(signal -> {
                     if (signal.isOnNext()) {
+                        String event = signal.get();
                         log.debug("[图文对话诊断] 收到 SSE 事件：sessionId = {}, data = {}",
-                                sessionId, signal.get());
+                                sessionId, event);
+                        // 尝试解析 usage（仅最后一帧含 usage，前面的帧解析不到会返回 null，自然跳过覆盖）
+                        long[] usage = extractUsage(event, sessionId);
+                        if (usage != null) {
+                            usageRef.set(usage);
+                        }
                     } else if (signal.isOnError()) {
                         Throwable t = signal.getThrowable();
                         log.error("[图文对话诊断] 流异常：sessionId = {}, errorType = {}, errorMsg = {}",
@@ -370,7 +427,7 @@ public class ChatServiceImpl implements IChatService {
                 .filter(event -> event != null && !event.isEmpty() && !"[DONE]".equals(event.trim()))
                 .map(event -> extractDeltaContent(event, sessionId))
                 .filter(chunk -> chunk != null && !chunk.isEmpty())
-                .doOnNext(chunk -> fullResponse.append(chunk))
+                .doOnNext(fullResponse::append)
                 .map(this::buildContentFrame)
                 .doOnComplete(() -> {
                     long responseTime = System.currentTimeMillis() - startTime;
@@ -380,18 +437,20 @@ public class ChatServiceImpl implements IChatService {
                         log.warn("检测到空响应，状态从 SUCCESS 改为 FAILED：sessionId = {}, model = {}, responseTime = {}ms",
                                 sessionId, finalModelName, responseTime);
                     }
+                    long[] usage = usageRef.get();
                     CompletableFuture.runAsync(() -> saveImageConversation(
                             request, sessionId, fullResponse.toString(),
-                            finalModelName, responseTime, status, errMsg));
+                            finalModelName, responseTime, status, errMsg, usage));
                 })
                 .onErrorResume(e -> {
                     long responseTime = System.currentTimeMillis() - startTime;
                     String errorMsg = extractErrorMessage(e);
                     log.error("流式图文对话失败：sessionId = {}, model = {}, errorType = {}, error = {}",
                             sessionId, finalModelName, e.getClass().getName(), errorMsg, e);
+                    // 失败时无 Usage，传 null
                     CompletableFuture.runAsync(() -> saveImageConversation(
                             request, sessionId, fullResponse.toString(),
-                            finalModelName, responseTime, STATUS_FAILED, errorMsg));
+                            finalModelName, responseTime, STATUS_FAILED, errorMsg, null));
                     return Flux.just(buildErrorFrame(ResultCode.AI_SERVICE_CONNECT_FAILED));
                 })
                 .concatWith(Flux.just(buildEndFrame(sessionId, finalModelName)));
@@ -435,6 +494,10 @@ public class ChatServiceImpl implements IChatService {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
         body.put("stream", true);
+        // stream_options.include_usage=true：要求 DashScope 在流式响应最后一帧返回 usage（Token 消耗）
+        // OpenAI 兼容协议默认不返回 usage，不加此参数 extractUsage 永远解析不到 Token
+        ObjectNode streamOptions = body.putObject("stream_options");
+        streamOptions.put("include_usage", true);
         // 图文对话 DTO 无 temperature 字段，使用默认温度（与纯文本对话保持一致）
         body.put("temperature", DEFAULT_TEMPERATURE);
 
@@ -445,15 +508,14 @@ public class ChatServiceImpl implements IChatService {
             ObjectNode msgNode = messagesArray.addObject();
             String role;
             String text = msg.getText() != null ? msg.getText() : "";
-            if (msg instanceof SystemMessage) {
-                role = "system";
-            } else if (msg instanceof UserMessage) {
-                role = "user";
-            } else if (msg instanceof org.springframework.ai.chat.messages.AssistantMessage) {
-                role = "assistant";
-            } else {
-                // 跳过未知类型的消息
-                continue;
+            switch (msg) {
+                case SystemMessage systemMessage -> role = "system";
+                case UserMessage userMessage -> role = "user";
+                case org.springframework.ai.chat.messages.AssistantMessage assistantMessage -> role = "assistant";
+                default -> {
+                    // 跳过未知类型的消息
+                    continue;
+                }
             }
             msgNode.put("role", role);
             msgNode.put("content", text);
@@ -488,14 +550,17 @@ public class ChatServiceImpl implements IChatService {
      * {"id":"...","choices":[{"index":0,"delta":{"content":"回答片段"},"finish_reason":null}]}
      * }</pre>
      * <p>
-     * 当 {@code choices[0].delta.content} 不存在或为 null 时返回 null（如首个事件只含 role），
-     * 由调用方的 {@code mapNotNull} 过滤掉。
+     * 当 {@code choices[0].delta.content} 不存在或为 null 时返回空字符串（如首个事件只含 role，或最后一帧只含 usage），
+     * 由调用方的 {@code .filter(chunk -> !chunk.isEmpty())} 过滤掉。
      * <p>
-     * 当 {@code choices[0].finish_reason} 非空（如 "stop"）时，表示流即将结束，也返回 null。
+     * 当 {@code choices[0].finish_reason} 非空（如 "stop"）时，表示流即将结束，也返回空字符串。
+     * <p>
+     * <b>注意</b>：本方法不返回 null，因为 Reactor {@code .map()} 操作符不允许 mapper 返回 null，
+     * 否则会抛出 {@code NullPointerException: The mapper returned a null value}。
      *
      * @param event    SSE 事件原始字符串
      * @param sessionId 会话ID（仅用于日志）
-     * @return 增量内容片段；无内容时返回 null
+     * @return 增量内容片段；无内容时返回空字符串（非 null）
      */
     private String extractDeltaContent(String event, String sessionId) {
         try {
@@ -505,24 +570,69 @@ public class ChatServiceImpl implements IChatService {
             if (errorNode.isObject()) {
                 String errorMsg = errorNode.path("message").asText("未知错误");
                 log.error("[图文对话] DashScope 流内返回错误：sessionId = {}, error = {}", sessionId, errorMsg);
-                throw new RuntimeException("DashScope 流内错误：" + errorMsg);
+                throw new ServiceException("DashScope 流内错误：" + errorMsg);
             }
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) {
-                return null;
+                // 返回空字符串而非 null：Reactor .map() 不允许返回 null，否则会抛 NullPointerException
+                // 后续 .filter(chunk -> !chunk.isEmpty()) 会过滤掉空字符串
+                return "";
             }
             JsonNode delta = choices.get(0).path("delta");
             JsonNode content = delta.path("content");
             if (content.isTextual() && !content.asText().isEmpty()) {
                 return content.asText();
             }
-            return null;
+            return "";
         } catch (RuntimeException e) {
             // 流内错误向上抛，触发 onErrorResume
             throw e;
         } catch (Exception e) {
             log.warn("[图文对话] 解析 SSE 事件失败，跳过：sessionId = {}, event = {}, error = {}",
                     sessionId, event, e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * 从 DashScope OpenAI 兼容模式的 SSE 事件中解析 usage 字段
+     * <p>
+     * DashScope 流式响应中，<b>只有最后一个 chunk 含 usage 字段</b>（累计值，非增量），
+     * 前面的 chunk 不含 usage（JSON 解析时 path("usage") 会返回 MissingNode）。
+     * <p>
+     * usage 字段格式：
+     * <pre>{@code
+     * "usage": {
+     *   "prompt_tokens": 50,
+     *   "completion_tokens": 100,
+     *   "total_tokens": 150
+     * }
+     * }</pre>
+     * <p>
+     * 调用方在每帧都尝试调用本方法，解析失败或无 usage 字段时返回 null，自然跳过覆盖；
+     * 只有最后一帧能真正解析到非 null 值，覆盖到 AtomicReference 中。
+     *
+     * @param event    SSE 事件原始 JSON 字符串
+     * @param sessionId 会话ID（仅用于日志）
+     * @return 长度 3 的 long 数组（promptTokens / completionTokens / totalTokens）；无 usage 时返回 null
+     */
+    private long[] extractUsage(String event, String sessionId) {
+        try {
+            JsonNode root = objectMapper.readTree(event);
+            JsonNode usageNode = root.path("usage");
+            if (usageNode.isObject()) {
+                long promptTokens = usageNode.path("prompt_tokens").asLong(0);
+                long completionTokens = usageNode.path("completion_tokens").asLong(0);
+                long totalTokens = usageNode.path("total_tokens").asLong(0);
+                // totalTokens 为 0 视为无效 usage（DashScope 异常情况）
+                if (totalTokens > 0) {
+                    return new long[]{promptTokens, completionTokens, totalTokens};
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("[图文对话] 解析 usage 失败（可能是非 JSON 帧或无 usage 字段）：sessionId = {}, event = {}",
+                    sessionId, event);
             return null;
         }
     }
@@ -574,7 +684,7 @@ public class ChatServiceImpl implements IChatService {
         if (matcher.find()) {
             String url = matcher.group();
             // 去除末尾可能残留的引号/反引号（正则的 [^...] 集合已排除，但防御性处理）
-            while (url.length() > 0 && (url.endsWith("`") || url.endsWith("'")
+            while (!url.isEmpty() && (url.endsWith("`") || url.endsWith("'")
                     || url.endsWith("\"") || url.endsWith(",") || url.endsWith(")"))) {
                 url = url.substring(0, url.length() - 1);
             }
@@ -679,6 +789,7 @@ public class ChatServiceImpl implements IChatService {
      * <p>
      * Step 6: 保存对话历史到 Redis（ChatMemoryService.addMessage）
      * Step 7: 记录对话到 MySQL（sys_ai_conversation 表）
+     * Step 8: 记录 AI 调用链路日志到 sys_ai_operation_log 表（含 Token 消耗）
      *
      * @param request      流式对话请求
      * @param sessionId    会话ID
@@ -687,24 +798,33 @@ public class ChatServiceImpl implements IChatService {
      * @param responseTime 响应时间（毫秒）
      * @param status       对话状态（SUCCESS/FAILED）
      * @param errorMsg     失败原因（status=FAILED 时记录）
+     * @param usage        Spring AI Usage 对象（含 promptTokens/completionTokens/totalTokens，FAILED 时为 null）
+     * @param toolCallsJson 工具调用记录 JSON 数组字符串（无调用时为 null）
      */
     private void saveConversation(ChatStreamReqDTO request, String sessionId, String answer,
-                                  String modelName, long responseTime, String status, String errorMsg) {
+                                  String modelName, long responseTime, String status, String errorMsg,
+                                  Usage usage, String toolCallsJson) {
         try {
             // Step 6: 保存对话历史到 Redis（仅 SUCCESS 时保存，避免部分响应污染下一轮上下文）
             if (STATUS_SUCCESS.equals(status) && StringUtils.hasText(answer)) {
                 chatMemoryService.addMessage(sessionId, new UserMessage(request.getMessage()));
-                chatMemoryService.addMessage(sessionId,
-                        new org.springframework.ai.chat.messages.AssistantMessage(answer));
+                chatMemoryService.addMessage(sessionId, new AssistantMessage(answer));
             }
             // Step 7: 记录对话到 MySQL（SUCCESS/FAILED 都记录，便于排查失败原因）
             SysAiConversation conversation = buildConversationEntity(
                     sessionId, request.getUserId(), request.getUserFrom(),
                     request.getMessage(), answer, modelName,
-                    request.getTemperature(), responseTime, status, errorMsg);
+                    request.getTemperature(), responseTime, status, errorMsg, request.getSources());
             historyService.saveConversation(conversation);
             log.info("保存对话记录成功：sessionId = {}, status = {}, responseTime = {}ms",
                     sessionId, status, responseTime);
+            // Step 8: 记录 AI 调用链路日志（含 Token 消耗 + 工具调用链路）
+            Integer promptTokens = usage != null ? Math.toIntExact(usage.getPromptTokens()) : null;
+            Integer completionTokens = usage != null ? Math.toIntExact(usage.getCompletionTokens()) : null;
+            Integer totalTokens = usage != null ? Math.toIntExact(usage.getTotalTokens()) : null;
+            recordOperationLog(conversation, request.getPrompt(), answer, modelName,
+                    responseTime, status, errorMsg, "CHAT",
+                    promptTokens, completionTokens, totalTokens, toolCallsJson);
         } catch (Exception e) {
             log.error("保存对话记录失败：sessionId = {}", sessionId, e);
         }
@@ -720,9 +840,11 @@ public class ChatServiceImpl implements IChatService {
      * @param responseTime 响应时间（毫秒）
      * @param status       对话状态（SUCCESS/FAILED）
      * @param errorMsg     失败原因（status=FAILED 时记录）
+     * @param usage        Token 数组（长度 3：promptTokens / completionTokens / totalTokens），FAILED 时为 null
      */
     private void saveImageConversation(ChatWithImageStreamReqDTO request, String sessionId, String answer,
-                                       String modelName, long responseTime, String status, String errorMsg) {
+                                       String modelName, long responseTime, String status, String errorMsg,
+                                       long[] usage) {
         try {
             // answer 为空时强制改为 FAILED（避免空 answer 被标记为 SUCCESS 污染下一轮上下文）
             String finalStatus = status;
@@ -742,7 +864,7 @@ public class ChatServiceImpl implements IChatService {
             SysAiConversation conversation = buildConversationEntity(
                     sessionId, request.getUserId(), request.getUserFrom(),
                     request.getMessage(), answer, modelName,
-                    null, responseTime, finalStatus, finalErrorMsg);
+                    null, responseTime, finalStatus, finalErrorMsg, request.getSources());
             // 保存图片 URL 列表（JSON 数组格式）
             if (request.getImages() != null && !request.getImages().isEmpty()) {
                 conversation.setImages(JsonUtil.classToJson(request.getImages()));
@@ -750,9 +872,114 @@ public class ChatServiceImpl implements IChatService {
             historyService.saveConversation(conversation);
             log.info("保存图文对话记录成功：sessionId = {}, status = {}, responseTime = {}ms",
                     sessionId, finalStatus, responseTime);
+            // 记录 AI 调用链路日志（含 Token 消耗；图文对话不走工具调用，toolCalls 传 null）
+            Integer promptTokens = usage != null ? Math.toIntExact(usage[0]) : null;
+            Integer completionTokens = usage != null ? Math.toIntExact(usage[1]) : null;
+            Integer totalTokens = usage != null ? Math.toIntExact(usage[2]) : null;
+            recordOperationLog(conversation, request.getPrompt(), answer, modelName,
+                    responseTime, finalStatus, finalErrorMsg, "CHAT",
+                    promptTokens, completionTokens, totalTokens, null);
         } catch (Exception e) {
             log.error("保存图文对话记录失败：sessionId = {}", sessionId, e);
         }
+    }
+
+    /**
+     * 异步记录 AI 调用链路日志到 sys_ai_operation_log 表
+     * <p>
+     * <b>第二阶段已支持 Token 字段</b>，填充字段：
+     * <ul>
+     *     <li>userId / userFrom / conversationId：用户与对话关联</li>
+     *     <li>operationType：CHAT（文本对话）/ 其他类型由调用方指定</li>
+     *     <li>model / prompt / response：完整 Prompt 与 LLM 响应</li>
+     *     <li>promptTokens / completionTokens / totalTokens：Token 消耗（来自 Spring AI Usage 或 SSE 解析）</li>
+     *     <li>responseTime / status / errorMsg：耗时与状态</li>
+     *     <li>createDate / createTime：操作时间</li>
+     * </ul>
+     * <p>
+     * <b>工具调用链路</b>：由 {@link ToolCallRecorder} 装饰器在工具调用时记录，
+     * 通过 {@link #drainToolCallRecords} 收集后传入，无工具调用时为 null。
+     * <p>
+     * <b>异常隔离</b>：写入失败不影响主流程（对话已保存到 sys_ai_conversation 表），仅记录 warn 日志。
+     *
+     * @param conversation      对话记录实体（已保存，取其 id 作为 conversationId 关联）
+     * @param prompt            完整 Prompt（含 RAG 上下文）
+     * @param response          LLM 完整响应内容
+     * @param modelName         模型名称
+     * @param responseTime      响应耗时（毫秒）
+     * @param status            调用状态（SUCCESS/FAILED）
+     * @param errorMsg          失败原因（status=FAILED 时记录，可为 null）
+     * @param operationType     AI 操作类型（CHAT/RETRIEVE/EMBEDDING/RERANK）
+     * @param promptTokens      Prompt Token 数（可为 null）
+     * @param completionTokens  响应 Token 数（可为 null）
+     * @param totalTokens       总 Token 数（可为 null）
+     * @param toolCallsJson     工具调用记录 JSON 数组字符串（无调用时为 null）
+     */
+    private void recordOperationLog(SysAiConversation conversation, String prompt, String response,
+                                     String modelName, long responseTime, String status,
+                                     String errorMsg, String operationType,
+                                     Integer promptTokens, Integer completionTokens, Integer totalTokens,
+                                     String toolCallsJson) {
+        try {
+            SysAiOperationLog opLog = new SysAiOperationLog();
+            opLog.setUserId(conversation.getUserId());
+            opLog.setUserFrom(conversation.getUserFrom());
+            opLog.setConversationId(conversation.getId());
+            opLog.setOperationType(operationType);
+            opLog.setModel(modelName);
+            opLog.setPrompt(prompt);
+            opLog.setResponse(response);
+            opLog.setPromptTokens(promptTokens);
+            opLog.setCompletionTokens(completionTokens);
+            opLog.setTotalTokens(totalTokens);
+            // 工具调用链路（JSON 数组，由 ToolCallRecorder 装饰器收集，无调用时为 null）
+            opLog.setToolCalls(toolCallsJson);
+            opLog.setResponseTime((int) responseTime);
+            opLog.setStatus(status);
+            if (errorMsg != null) {
+                opLog.setErrorMsg(errorMsg);
+            }
+            opLog.setCreateDate(Long.parseLong(LocalDate.now().format(DATE_FORMATTER)));
+            opLog.setCreateTime(LocalDateTime.now());
+            sysAiOperationLogMapper.insert(opLog);
+        } catch (Exception ex) {
+            log.warn("写入 AI 调用链路日志失败：sessionId = {}, conversationId = {}",
+                    conversation.getSessionId(), conversation.getId(), ex);
+        }
+    }
+
+    /**
+     * 收集本次对话所有工具调用记录
+     * <p>
+     * 遍历所有 {@link ToolCallRecorder} 装饰器，调用 {@link ToolCallRecorder#drainRecords()}
+     * 取出每个工具的调用记录（JSON 数组），合并为一个 JSON 数组字符串。
+     * <p>
+     * <b>调用时机</b>：在流式对话的 doOnComplete / onErrorResume 回调中调用，
+     * 此时所有工具调用已完成，可以安全地 drain。
+     *
+     * @param toolRecorders 本次对话的工具调用记录装饰器列表（可为空列表）
+     * @return 合并后的工具调用记录 JSON 数组字符串；无调用记录时返回 null
+     */
+    private String drainToolCallRecords(List<ToolCallRecorder> toolRecorders) {
+        if (CollectionUtils.isEmpty(toolRecorders)) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (ToolCallRecorder recorder : toolRecorders) {
+            String json = recorder.drainRecords();
+            if (json != null) {
+                // recorder.drainRecords() 返回 "[{...},{...}]" 格式，去掉外层 [] 后拼接
+                String inner = json.substring(1, json.length() - 1);
+                if (!first) {
+                    sb.append(",");
+                }
+                sb.append(inner);
+                first = false;
+            }
+        }
+        sb.append("]");
+        return first ? null : sb.toString();
     }
 
     /**
@@ -768,12 +995,13 @@ public class ChatServiceImpl implements IChatService {
      * @param responseTime 响应时间（毫秒）
      * @param status       对话状态
      * @param errorMsg     失败原因
+     * @param sources      RAG 引用来源（文档标题列表，可为 null）
      * @return 对话记录实体
      */
     private SysAiConversation buildConversationEntity(String sessionId, Long userId, String userFrom,
                                                        String question, String answer, String modelName,
                                                        Double temperature, long responseTime,
-                                                       String status, String errorMsg) {
+                                                       String status, String errorMsg, List<String> sources) {
         SysAiConversation conversation = new SysAiConversation();
         conversation.setId(snowflakeIdService.nextId());
         conversation.setSessionId(sessionId);
@@ -792,6 +1020,10 @@ public class ChatServiceImpl implements IChatService {
         conversation.setIsDeleted(0);
         if (errorMsg != null) {
             conversation.setErrorMsg(errorMsg);
+        }
+        // RAG 引用来源序列化为 JSON 数组存储（仅 assistant 消息有，user 消息此字段为 null）
+        if (sources != null && !sources.isEmpty()) {
+            conversation.setSources(JsonUtil.classToJson(sources));
         }
         long today = Long.parseLong(LocalDate.now().format(DATE_FORMATTER));
         conversation.setCreateDate(today);
