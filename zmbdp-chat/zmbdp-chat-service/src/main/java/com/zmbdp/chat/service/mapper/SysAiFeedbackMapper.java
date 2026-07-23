@@ -25,32 +25,45 @@ public interface SysAiFeedbackMapper extends BaseMapper<SysAiFeedback> {
      * 按反馈类型统计数量
      *
      * @param feedbackType 反馈类型（LIKE/DISLIKE）
+     * @param startDate    起始日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
+     * @param endDate      结束日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
      * @return 数量
      */
-    Long countByType(@Param("feedbackType") String feedbackType);
+    Long countByType(@Param("feedbackType") String feedbackType,
+                     @Param("startDate") Long startDate,
+                     @Param("endDate") Long endDate);
 
     /**
      * 统计反馈总数
      *
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
      * @return 反馈总数
      */
-    Long countTotalFeedback();
+    Long countTotalFeedback(@Param("startDate") Long startDate,
+                            @Param("endDate") Long endDate);
 
     /**
      * 统计反馈用户数（按 user_id 去重）
      *
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
      * @return 反馈用户数
      */
-    Long countFeedbackUsers();
+    Long countFeedbackUsers(@Param("startDate") Long startDate,
+                            @Param("endDate") Long endDate);
 
     /**
      * 按点踩原因分组统计分布
      * <p>
      * 仅统计 feedback_type='DISLIKE' 且 dislike_reason 非空的记录。
      *
+     * @param startDate 起始日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
+     * @param endDate   结束日期（YYYYMMDD 格式 Long 值，可空，为空时不加日期过滤）
      * @return 原因-数量列表，每项含 reason 和 count
      */
-    List<Map<String, Object>> countDislikeReasonDistribution();
+    List<Map<String, Object>> countDislikeReasonDistribution(@Param("startDate") Long startDate,
+                                                             @Param("endDate") Long endDate);
 
     /**
      * B 端反馈明细分页查询（联表 sys_ai_conversation）

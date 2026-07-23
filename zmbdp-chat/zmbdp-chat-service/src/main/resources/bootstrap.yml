@@ -43,12 +43,12 @@ spring:
             refresh: true # 配置是否支持动态刷新
           - data-id: share-xxljob-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
             refresh: true # 配置是否支持动态刷新
-
-logging:
-  level:
-    org.springframework.ai: DEBUG
-    com.alibaba.cloud.ai.dashscope: DEBUG
-    reactor.netty.http.client: DEBUG
+          # chat-service 专属共享配置：AI 模型（DashScope/多模型/Embedding 开关/RAG 参数）
+          - data-id: share-ai-model-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
+          # chat-service 专属共享配置：知识库（Milvus/路径/启动同步）
+          - data-id: share-knowledge-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+            refresh: true # 配置是否支持动态刷新
 
 # MyBatis Plus 配置
 mybatis-plus:

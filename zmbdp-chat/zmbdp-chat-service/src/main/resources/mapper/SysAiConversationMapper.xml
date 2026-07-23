@@ -56,13 +56,13 @@
           AND status = 'SUCCESS'
     </select>
 
-    <!-- 统计近 N 天活跃用户数（按 user_id 去重） -->
+    <!-- 统计近 N 天活跃用户数（按 user_id 去重），日期阈值由 SQL 计算（含当天） -->
     <select id="countActiveUsers" resultType="java.lang.Long">
         SELECT COUNT(DISTINCT user_id)
         FROM sys_ai_conversation
         WHERE is_deleted = 0
           AND status = 'SUCCESS'
-          AND create_date &gt;= #{startDate}
+          AND create_date &gt;= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL #{days} - 1 DAY), '%Y%m%d')
     </select>
 
     <!-- 按日期分组统计近 N 天每日对话数 -->
@@ -103,15 +103,24 @@
     </select>
 
     <!-- 查询 Top 活跃用户列表（按对话次数降序） -->
+    <!--
+        JOIN 用户表补全 username：
+        sys_ai_conversation.user_from='sys' → JOIN sys_user.nick_name
+        sys_ai_conversation.user_from='app' → JOIN app_user.nick_name
+        用 LEFT JOIN 避免用户记录缺失导致行丢失；两条 JOIN 通过 user_from 隔离，互不干扰
+    -->
     <select id="selectTopUsers" resultType="com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO$TopUser">
         SELECT
-            user_id AS userId,
+            c.user_id AS userId,
             COUNT(*) AS conversationCount,
-            UNIX_TIMESTAMP(MAX(create_time)) * 1000 AS lastActiveTime
-        FROM sys_ai_conversation
-        WHERE is_deleted = 0
-          AND status = 'SUCCESS'
-        GROUP BY user_id
+            UNIX_TIMESTAMP(MAX(c.create_time)) * 1000 AS lastActiveTime,
+            COALESCE(su.nick_name, au.nick_name) AS username
+        FROM sys_ai_conversation c
+        LEFT JOIN sys_user su ON c.user_id = su.id AND c.user_from = 'sys'
+        LEFT JOIN app_user au ON c.user_id = au.id AND c.user_from = 'app'
+        WHERE c.is_deleted = 0
+          AND c.status = 'SUCCESS'
+        GROUP BY c.user_id, su.nick_name, au.nick_name
         ORDER BY conversationCount DESC
         LIMIT #{limit}
     </select>
