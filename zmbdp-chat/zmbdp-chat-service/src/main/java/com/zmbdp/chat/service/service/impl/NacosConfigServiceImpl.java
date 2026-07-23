@@ -34,7 +34,7 @@ import java.util.Map;
  * <b>调用方</b>：NacosConfigTool、CompareConfigTool、PreDeployCheckTool 三个 Agent 工具。
  * <p>
  * <b>接口兼容</b>：{@link INacosConfigService} 接口签名保持不变（getConfig/listConfigs），
- * 三个工具类无需任何改动。namespace 参数仍按 {@code frameworkjava-{env}} 约定传入，
+ * 三个工具类无需任何改动。namespace 参数仍按 {@code scaffold-ai-assistant-{env}} 约定传入，
  * 本实现从中解析 env 后拼接本地文件路径。
  *
  * @author 稚名不带撇
@@ -52,9 +52,9 @@ public class NacosConfigServiceImpl implements INacosConfigService {
     /**
      * 命名空间前缀（与 NacosConfigTool/CompareConfigTool/PreDeployCheckTool 约定一致）
      * <p>
-     * 项目约定 namespace = frameworkjava-{env}，如 frameworkjava-dev。
+     * 项目约定 namespace = scaffold-ai-assistant-{env}，如 scaffold-ai-assistant-dev。
      */
-    private static final String NAMESPACE_PREFIX = "frameworkjava-";
+    private static final String NAMESPACE_PREFIX = "scaffold-ai-assistant-";
 
     /**
      * dev 环境的 DEFAULT_GROUP 相对路径（相对于 base-path）
@@ -94,7 +94,7 @@ public class NacosConfigServiceImpl implements INacosConfigService {
      *
      * @param dataId    配置ID（完整文件名，如 share-redis-dev.yaml，由工具层拼接环境后缀）
      * @param group     分组（仅作记录，实际脚手架所有配置均在 DEFAULT_GROUP 下）
-     * @param namespace 命名空间（frameworkjava-{env}，从中解析 env）
+     * @param namespace 命名空间（scaffold-ai-assistant-{env}，从中解析 env）
      * @return 配置内容；配置不存在返回 {@code null}
      */
     @Override
@@ -140,7 +140,7 @@ public class NacosConfigServiceImpl implements INacosConfigService {
      * 均未调用本方法，但为保持接口完整仍予实现，便于未来扩展（如新增"列出所有配置"工具）。
      *
      * @param group     分组（仅 DEFAULT_GROUP 有效）
-     * @param namespace 命名空间（frameworkjava-{env}）
+     * @param namespace 命名空间（scaffold-ai-assistant-{env}）
      * @return 配置项列表（含 dataId、group、content 等字段）；目录不存在返回空列表
      */
     @Override
@@ -197,7 +197,7 @@ public class NacosConfigServiceImpl implements INacosConfigService {
     /**
      * 从 namespace 解析 env
      * <p>
-     * namespace 格式约定为 {@code frameworkjava-{env}}，
+     * namespace 格式约定为 {@code scaffold-ai-assistant-{env}}，
      * 解析出 {@code env}（dev/test/prd）。
      *
      * @param namespace 命名空间

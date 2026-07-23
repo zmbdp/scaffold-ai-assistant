@@ -73,12 +73,13 @@ public interface IKnowledgeLoaderService {
     /**
      * 执行知识同步
      * <p>
-     * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步。
+     * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步、按知识源类型过滤。
      *
-     * @param force 是否强制全量同步（true=全量，false=增量）
+     * @param sourceType 知识源类型过滤（doc/javadoc/config/code，传 null 或 "all" 表示全部）
+     * @param force      是否强制全量同步（true=全量，false=增量）
      * @return 同步结果统计
      */
-    SyncResultVO syncKnowledge(boolean force);
+    SyncResultVO syncKnowledge(String sourceType, boolean force);
 
     /**
      * 上传单个文档到指定知识源

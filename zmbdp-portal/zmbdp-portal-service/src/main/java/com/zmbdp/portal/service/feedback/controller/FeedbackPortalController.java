@@ -3,6 +3,7 @@ package com.zmbdp.portal.service.feedback.controller;
 import com.zmbdp.chat.api.feedback.domain.dto.FeedbackReqDTO;
 import com.zmbdp.chat.api.feedback.domain.vo.FeedbackVO;
 import com.zmbdp.common.domain.domain.Result;
+import com.zmbdp.common.idempotent.annotation.Idempotent;
 import com.zmbdp.portal.service.feedback.service.IFeedbackPortalService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,10 +33,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>
  * <b>认证</b>：需要 JWT Token，Service 内部从 JWT 提取 userId/userFrom 传给 chat-service 进行数据隔离。
  * <p>
- * <b>覆盖语义</b>：submitFeedback 接口在 chat-service 端采用"先删后插"实现覆盖，
- * 同一用户对同一对话重复提交反馈时覆盖上一次的反馈。
- * @Idempotent 注解实际生效位置在 chat-service 的 FeedbackController 实现类方法上，
- * 用于防止前端重复点击，与覆盖语义不冲突（切换反馈类型时前端传不同 idempotent-token）。
+ * <b>幂等校验</b>：submitFeedback 方法上的 {@code @Idempotent} 注解在入口层防重复点击，
+ * 同一 Idempotent-Token 在过期时间内只允许一次请求。前端切换反馈类型（如点赞→点踩）时
+ * 应生成新的 Idempotent-Token，以避免被拦截。chat-service 内部不再重复校验。
  *
  * @author 稚名不带撇
  */
@@ -55,11 +55,15 @@ public class FeedbackPortalController {
      * <p>
      * 业务规则：同一用户对同一对话重复提交反馈时覆盖上一次的反馈
      * （chat-service 端"先删后插"）。
+     * <p>
+     * <b>幂等校验</b>：同一 Idempotent-Token 在过期时间内只允许一次请求，
+     * 切换反馈类型时前端需传新的 Idempotent-Token。
      *
      * @param request 反馈请求（含 conversationId、feedbackType、dislikeReason、comment）
      * @return 反馈 VO
      */
     @PostMapping
+    @Idempotent(message = "请勿重复提交反馈")
     public Result<FeedbackVO> submitFeedback(@Validated @RequestBody FeedbackReqDTO request) {
         return Result.success(feedbackPortalService.submitFeedback(request));
     }

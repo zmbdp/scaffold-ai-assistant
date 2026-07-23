@@ -11,7 +11,11 @@ import com.zmbdp.chat.api.ai.feign.AiConfigApi;
 import com.zmbdp.chat.api.ai.feign.ToolsApi;
 import com.zmbdp.chat.api.chat.domain.dto.RetrieveReqDTO;
 import com.zmbdp.chat.api.chat.domain.vo.DocumentVO;
+import com.zmbdp.chat.api.feedback.domain.vo.FeedbackAdminVO;
+import com.zmbdp.chat.api.feedback.feign.FeedbackApi;
+import com.zmbdp.chat.api.knowledge.constant.KnowledgeSyncMQConstants;
 import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
+import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSyncMessage;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
@@ -34,6 +38,7 @@ import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.admin.service.ai.service.IAiAdminService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -90,6 +95,18 @@ public class AiAdminServiceImpl implements IAiAdminService {
     @Autowired
     private SystemApi systemApi;
 
+    /**
+     * 反馈管理 Feign 接口（B 端反馈明细分页查询）
+     */
+    @Autowired
+    private FeedbackApi feedbackApi;
+
+    /**
+     * RabbitMQ 消息发送模板（用于知识同步异步化）
+     */
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
     /* ============================================= 知识库管理 ============================================= */
 
     /**
@@ -129,12 +146,33 @@ public class AiAdminServiceImpl implements IAiAdminService {
     }
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
+     * <p>
+     * 通过 MQ 发送同步消息到 chat-service，立即返回"已提交"提示。
+     * chat-service 消费端 {@code KnowledgeSyncConsumer} 异步执行同步流程。
+     * <p>
+     * <b>异步化原因</b>：知识同步涉及扫描文件、Embedding 调用、Milvus 写入，
+     * 耗时可能数分钟，同步 HTTP 调用会导致前端超时返回 500000。
      */
     @Override
-    public SyncResultVO syncKnowledge(SyncReqDTO dto) {
-        Result<SyncResultVO> result = knowledgeApi.sync(dto);
-        return unwrap(result, "触发知识同步失败");
+    public String syncKnowledge(SyncReqDTO dto) {
+        String sourceType = dto != null ? dto.getSourceType() : null;
+        boolean force = dto != null && Boolean.TRUE.equals(dto.getForce());
+        log.info("触发知识同步（MQ 异步）：sourceType = {}, force = {}", sourceType, force);
+        try {
+            KnowledgeSyncMessage message = new KnowledgeSyncMessage();
+            message.setSourceType(sourceType);
+            message.setForce(force);
+            rabbitTemplate.convertAndSend(
+                    KnowledgeSyncMQConstants.EXCHANGE,
+                    KnowledgeSyncMQConstants.ROUTING_KEY,
+                    message);
+            log.info("知识同步 MQ 消息已发送：sourceType = {}, force = {}", sourceType, force);
+            return "知识同步任务已提交，请稍后通过文档列表查看同步结果";
+        } catch (Exception e) {
+            log.error("发送知识同步 MQ 消息失败：sourceType = {}, force = {}", sourceType, force, e);
+            throw new ServiceException("触发知识同步失败：" + e.getMessage());
+        }
     }
 
     /**
@@ -325,6 +363,23 @@ public class AiAdminServiceImpl implements IAiAdminService {
     public FeedbackStatisticsVO getFeedbackStatistics(Long startDate, Long endDate) {
         Result<FeedbackStatisticsVO> result = statisticsApi.getFeedbackStatistics(startDate, endDate);
         return unwrap(result, "获取回答满意度统计失败");
+    }
+
+    /* ============================================= 反馈管理 ============================================= */
+
+    /**
+     * B 端反馈明细分页查询
+     * <p>
+     * 通过 Feign 调用 chat-service 的 {@code FeedbackApi.listFeedbacks()}，
+     * 单条记录同时返回反馈信息 + 对话问答摘要（question / answerSummary / model / sources）。
+     */
+    @Override
+    public BasePageVO<FeedbackAdminVO> listFeedbacks(Integer pageNo, Integer pageSize,
+                                                      String feedbackType, String dislikeReason,
+                                                      Long userId, Long startDate, Long endDate) {
+        Result<BasePageVO<FeedbackAdminVO>> result = feedbackApi.listFeedbacks(
+                pageNo, pageSize, feedbackType, dislikeReason, userId, startDate, endDate);
+        return unwrap(result, "获取反馈明细列表失败");
     }
 
     /* ============================================= 系统管理 ============================================= */

@@ -92,8 +92,11 @@ public class AuthFilter implements GlobalFilter, Ordered {
         }
         // 再判断用户来源是否合法
         String userFrom = JwtUtil.getUserFrom(claims);
+        // B 端管理接口路径校验：/admin/** 和原 sys_user 路径都要求 userFrom=sys
+        // 防止 C 端用户（userFrom=app）持 JWT 越权访问 B 端管理接口（知识库、AI 配置、统计等）
+        boolean isAdminPath = url.contains(HttpConstants.SYS_USER_PATH) || url.startsWith("/admin/");
         if (
-                url.contains(HttpConstants.SYS_USER_PATH) && // 如果路径是系统路径
+                isAdminPath && // 如果是 B 端管理路径
                 !UserConstants.USER_FROM_TU_B.equals(userFrom) // 但是用户不是系统来源的话（相当于 C端用户在 C端拿到的 jwt 想在 B端使用）
         ) {
             return unauthorizedResponse(exchange, ResultCode.TOKEN_CHECK_FAILED);

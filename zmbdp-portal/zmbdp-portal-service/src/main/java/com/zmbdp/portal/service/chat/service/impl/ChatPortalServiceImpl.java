@@ -218,6 +218,8 @@ public class ChatPortalServiceImpl implements IChatPortalService {
         streamReq.setTemperature(request.getTemperature());
         streamReq.setUserId(userId);
         streamReq.setUserFrom(userFrom);
+        // 透传 RAG 引用来源（文档标题列表），用于历史详情展示
+        streamReq.setSources(extractSourceTitles(documents));
 
         log.info("发起流式文本对话：sessionId = {}, userId = {}, userFrom = {}, docCount = {}, promptLength = {}",
                 sessionId, userId, userFrom, documents.size(), prompt.length());
@@ -276,6 +278,8 @@ public class ChatPortalServiceImpl implements IChatPortalService {
         streamReq.setModel(request.getModel());
         streamReq.setUserId(userId);
         streamReq.setUserFrom(userFrom);
+        // 透传 RAG 引用来源（文档标题列表），用于历史详情展示
+        streamReq.setSources(extractSourceTitles(documents));
 
         log.info("发起流式图文对话：sessionId = {}, userId = {}, userFrom = {}, docCount = {}, imageCount = {}, promptLength = {}",
                 sessionId, userId, userFrom, documents.size(),
@@ -407,6 +411,29 @@ public class ChatPortalServiceImpl implements IChatPortalService {
             log.warn("RAG 检索失败，使用空上下文继续对话：question = {}, error = {}", question, e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * 从 RAG 检索结果中提取文档标题列表，作为引用来源透传给 chat-service
+     * <p>
+     * 用于历史详情展示 assistant 消息时显示引用了哪些文档。
+     * 标题缺失时用源文件路径兜底；去重后返回（同一文档可能被分块命中多次）。
+     *
+     * @param documents RAG 检索到的文档分块列表
+     * @return 文档标题列表（无文档时返回空列表）
+     */
+    private List<String> extractSourceTitles(List<DocumentVO> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        return documents.stream()
+                .map(doc -> {
+                    String title = doc.getTitle();
+                    return StringUtil.isNotBlank(title) ? title : doc.getSourcePath();
+                })
+                .filter(StringUtil::isNotBlank)
+                .distinct()
+                .toList();
     }
 
     /**
