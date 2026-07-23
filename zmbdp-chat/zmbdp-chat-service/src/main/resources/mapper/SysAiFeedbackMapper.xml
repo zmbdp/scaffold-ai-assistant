@@ -4,34 +4,66 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.zmbdp.chat.service.mapper.SysAiFeedbackMapper">
 
-    <!-- 按反馈类型统计数量 -->
+    <!-- 按反馈类型统计数量（可选日期范围过滤） -->
     <select id="countByType" resultType="java.lang.Long">
         SELECT COUNT(*)
         FROM sys_ai_feedback
-        WHERE feedback_type = #{feedbackType}
+        <where>
+            feedback_type = #{feedbackType}
+            <if test="startDate != null">
+                AND create_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND create_date &lt;= #{endDate}
+            </if>
+        </where>
     </select>
 
-    <!-- 统计反馈总数 -->
+    <!-- 统计反馈总数（可选日期范围过滤） -->
     <select id="countTotalFeedback" resultType="java.lang.Long">
         SELECT COUNT(*)
         FROM sys_ai_feedback
+        <where>
+            <if test="startDate != null">
+                AND create_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND create_date &lt;= #{endDate}
+            </if>
+        </where>
     </select>
 
-    <!-- 统计反馈用户数（按 user_id 去重） -->
+    <!-- 统计反馈用户数（按 user_id 去重，可选日期范围过滤） -->
     <select id="countFeedbackUsers" resultType="java.lang.Long">
         SELECT COUNT(DISTINCT user_id)
         FROM sys_ai_feedback
+        <where>
+            <if test="startDate != null">
+                AND create_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND create_date &lt;= #{endDate}
+            </if>
+        </where>
     </select>
 
-    <!-- 按点踩原因分组统计分布 -->
+    <!-- 按点踩原因分组统计分布（可选日期范围过滤） -->
     <select id="countDislikeReasonDistribution" resultType="java.util.Map">
         SELECT
             dislike_reason AS reason,
             COUNT(*) AS count
         FROM sys_ai_feedback
-        WHERE feedback_type = 'DISLIKE'
-          AND dislike_reason IS NOT NULL
-          AND dislike_reason != ''
+        <where>
+            feedback_type = 'DISLIKE'
+            AND dislike_reason IS NOT NULL
+            AND dislike_reason != ''
+            <if test="startDate != null">
+                AND create_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND create_date &lt;= #{endDate}
+            </if>
+        </where>
         GROUP BY dislike_reason
         ORDER BY count DESC
     </select>
