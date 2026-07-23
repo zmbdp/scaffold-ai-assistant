@@ -70,11 +70,14 @@ public interface SysAiConversationMapper extends BaseMapper<SysAiConversation> {
 
     /**
      * 统计近 N 天活跃用户数（按 user_id 去重）
+     * <p>
+     * 日期阈值由 SQL 通过 DATE_SUB(NOW(), INTERVAL days-1 DAY) 计算后转为 YYYYMMDD，
+     * 与 create_date（BIGINT YYYYMMDD）比较，days 含当天（如 7 表示近 7 天含今天）。
      *
-     * @param startDate 起始日期（YYYYMMDD 格式 Long 值）
+     * @param days 统计天数（含当天）
      * @return 活跃用户数
      */
-    Long countActiveUsers(@Param("startDate") Long startDate);
+    Long countActiveUsers(@Param("days") int days);
 
     /**
      * 按日期分组统计近 N 天每日对话数
