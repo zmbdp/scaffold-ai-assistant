@@ -8,6 +8,7 @@
   Content-Type: application/json
   ```
 - **日期格式**：BIGINT，如 `20260712`（YYYYMMDD）
+- **网关权限**：`/admin/**` 路径仅允许 B 端系统用户（JWT 中 `userFrom=sys`）访问，C 端用户 token（`userFrom=app`）会被网关 AuthFilter 拒绝并返回 `TOKEN_CHECK_FAILED`。测试 B 端接口时务必使用 B 端登录获取的 token，勿复用 C 端 `/portal/login/**` 产出的 token。
 
 ---
 
@@ -584,7 +585,7 @@ file=@/path/to/your-doc.md
 | --- | --- | --- | --- | --- |
 | `days` | Integer | ❌ 否 | 7 | 统计天数窗口 |
 
-> **预留参数说明**：当前 Service 层固定返回近 7 天活跃用户，`days` 参数已接收但未实现自定义窗口（后续如需扩展，可增强 Service 层方法签名）
+> **参数说明**：`days` 参数已生效，按指定天数窗口统计活跃用户（如传 `30` 表示统计近 30 天活跃用户）；不传时默认统计近 7 天
 
 ---
 
@@ -617,7 +618,7 @@ file=@/path/to/your-doc.md
 | `startDate` | Long | ❌ 否 | 查全部 | 起始日期（BIGINT YYYYMMDD，如 `20260701`） |
 | `endDate` | Long | ❌ 否 | 查全部 | 结束日期（BIGINT YYYYMMDD，如 `20260719`） |
 
-> **预留参数说明**：当前 Service 层返回全量反馈统计，`startDate` / `endDate` 参数已接收但未实现自定义窗口（后续如需扩展，可增强 Service 层方法签名）
+> **参数说明**：`startDate` / `endDate` 参数已生效，按日期范围过滤反馈统计；均不传时返回全量反馈统计
 
 ---
 
@@ -637,7 +638,7 @@ file=@/path/to/your-doc.md
 | `startDate` | Long | ❌ 否 | 查全部 | 起始日期（BIGINT YYYYMMDD） |
 | `endDate` | Long | ❌ 否 | 查全部 | 结束日期（BIGINT YYYYMMDD） |
 
-> **预留参数说明**：当前 Service 层仅 `operationType` 过滤生效，`model` / `status` / `startDate` / `endDate` 参数已接收但未实现过滤（后续如需扩展，可增强 Mapper SQL）
+> **参数说明**：`operationType` / `model` / `status` / `startDate` / `endDate` 参数均已生效，支持多条件组合过滤（可同时传多个参数做交集查询）；均不传时返回全部日志
 
 ---
 
