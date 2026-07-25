@@ -269,6 +269,7 @@ Authorization: Bearer {accessToken}
 | code | errMsg | 含义 | 场景 |
 | --- | --- | --- | --- |
 | `200000` | 操作成功 | 成功 | operationId 存在或不存在均返回此 code |
+| `400006` | 参数类型不匹配 | 参数类型错误（HTTP 400） | operationId 传非数字 |
 | `401000` | 令牌不能为空 | 缺 token（HTTP 401） | 未携带 Authorization |
 | `401003` | 登录状态已过期！ | Redis 登录态过期（HTTP 401） | token 过期 |
 | `401004` | 令牌验证失败！ | 越权访问（HTTP 401） | C 端 token 访问 `/admin/**` |
@@ -277,7 +278,7 @@ Authorization: Bearer {accessToken}
 
 > **operationId 不存在不返回 404004**：虽然 `ResultCode.AI_OPERATION_LOG_NOT_FOUND(404004, "AI 操作日志不存在")` 在 `ResultCode` 中已定义，且 chat-service 的 `AdminServiceImpl#getOperationLogDetail` 会抛出该错误，但本详情接口走的是 `StatisticsApi` → `StatisticsServiceImpl#getOperationDetail` 路径，该方法在 `selectById` 返回 `null` 时直接返回 `null`，不抛异常。因此本接口在 operationId 不存在时返回 `data=null`，而非 `404004` 错误。
 >
-> 当 chat-service Feign 调用返回非 `200000` 时，admin-service 抛出 `ServiceException("获取 AI 调用详情失败")`，HTTP 200 + `code=500001`。
+> 当 chat-service Feign 调用返回非 `200000` 时，admin-service 抛出 `ServiceException(透传chat-service的errMsg)`，HTTP 500 + `code=500000`。
 
 ---
 

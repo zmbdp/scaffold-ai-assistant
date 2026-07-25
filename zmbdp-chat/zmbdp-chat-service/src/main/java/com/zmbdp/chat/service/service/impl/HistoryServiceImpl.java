@@ -173,6 +173,7 @@ public class HistoryServiceImpl implements IHistoryService {
             userMsg.setContent(record.getQuestion());
             userMsg.setTimestamp(toEpochMillis(record.getCreateTime()));
             userMsg.setImages(parseStringListJson(record.getImages()));
+            userMsg.setConversationId(record.getId());
             messageList.add(userMsg);
             // assistant 消息（AI 的回答）：answer 为空时跳过（FAILED 且无响应的情况）
             if (StringUtils.hasText(record.getAnswer())) {
@@ -182,6 +183,7 @@ public class HistoryServiceImpl implements IHistoryService {
                 assistantMsg.setTimestamp(toEpochMillis(record.getCreateTime()));
                 assistantMsg.setModel(record.getModel());
                 assistantMsg.setSources(parseStringListJson(record.getSources()));
+                assistantMsg.setConversationId(record.getId());
                 messageList.add(assistantMsg);
             }
         }

@@ -70,5 +70,15 @@ public class HistoryDetailVO implements Serializable {
          * 模型名称（仅 assistant 消息）
          */
         private String model;
+
+        /**
+         * 对话记录ID（关联 sys_ai_conversation.id，雪花算法）
+         * <p>
+         * user 和 assistant 消息均会填充，取自同一条 sys_ai_conversation 记录的主键 id。
+         * 前端可用于提交反馈（{@code POST /portal/feedback} 的 conversationId 参数）、
+         * 查询反馈状态（{@code GET /portal/feedback/{conversationId}}）、
+         * 撤销反馈（{@code DELETE /portal/feedback/{conversationId}}）。
+         */
+        private Long conversationId;
     }
 }

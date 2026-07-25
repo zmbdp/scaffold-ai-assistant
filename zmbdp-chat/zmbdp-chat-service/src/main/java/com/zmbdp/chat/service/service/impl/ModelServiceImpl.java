@@ -184,17 +184,28 @@ public class ModelServiceImpl implements IModelService {
     }
 
     /**
-     * 判断是否为文本模型
+     * 判断是否为纯文本模型
+     * <p>
+     * 判定规则（满足任一即为文本模型）：
+     * <ol>
+     *     <li>{@code type = TEXT_ONLY}</li>
+     *     <li>capabilities 含 {@code TEXT} 且不含 {@code IMAGE}
+     *         （视觉模型 capabilities 也含 TEXT，必须排除，否则会被误判为文本模型覆盖 defaultTextModel）</li>
+     * </ol>
      *
      * @param config 模型配置
-     * @return true 表示是文本模型
+     * @return true 表示是纯文本模型
      */
     private boolean isTextModel(ModelConfig config) {
         if ("TEXT_ONLY".equals(config.getType())) {
             return true;
         }
         List<String> capabilities = config.getCapabilities();
-        return capabilities != null && capabilities.contains("TEXT");
+        // 必须含 TEXT 且不含 IMAGE：视觉模型（TEXT_AND_IMAGE）的 capabilities=[TEXT, IMAGE] 也含 TEXT，
+        // 若不排除 IMAGE，视觉模型会被误判为文本模型，在两个 default-model=true 时覆盖 defaultTextModel
+        return capabilities != null
+                && capabilities.contains("TEXT")
+                && !capabilities.contains("IMAGE");
     }
 
     /**
