@@ -158,7 +158,7 @@ VALUES (1, 1, '布隆过滤器重置任务', NOW(), NOW(), 'zmbdptest', '', 'CRO
         'GLUE代码初始化', NOW(), '', 0, 0, 0),
        (4, 5, '清理过期 AI 调用链路日志定时任务', NOW(), NOW(), 'zmbdptest', '', 'CRON',
         '0 0 4 * * ?', 'DO_NOTHING', 'FIRST', 'cleanExpiredLogsJob', '90', 'SERIAL_EXECUTION', 0, 1, 'BEAN', '',
-        'GLUE代码初始化', NOW(), '', 0, 0, 0)
+        'GLUE代码初始化', NOW(), '', 0, 0, 0);
 
 -- 初始化管理员用户
 -- 用户名：zmbdptest  密码：Hf@173503494（MD5加密后）

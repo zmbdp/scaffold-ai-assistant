@@ -246,9 +246,11 @@ services:
       - network_prd
     ports:
       - "8666:80"
+      - "8667:81"
     volumes:
       - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/web/dist:/data/scaffold-ai-assistant/web/dist
+      - ./nginx/web/dist-c:/data/scaffold-ai-assistant/web/dist-c
+      - ./nginx/web/dist-b:/data/scaffold-ai-assistant/web/dist-b
     ulimits:
       nproc: 65535
       nofile:

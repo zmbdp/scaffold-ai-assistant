@@ -40,10 +40,14 @@ public class KnowledgeSyncConsumer {
     /**
      * 消费知识同步消息
      * <p>
-     * 解析消息中的 sourceType 和 force 参数，调用 {@link IKnowledgeLoaderService#syncKnowledge}
-     * 执行异步同步。同步结果仅记录日志，不返回给 admin-service（异步模式，前端通过文档列表查看结果）。
+     * 解析消息中的 taskId、sourceType 和 force 参数，调用 {@link IKnowledgeLoaderService#syncKnowledge}
+     * 执行异步同步。同步过程中向 Redis 写入进度数据（key = sync:progress:{taskId}），
+     * 供前端通过 GET /knowledge/sync/progress/{taskId} 轮询查询。
+     * <p>
+     * <b>单任务约束</b>：syncKnowledge 内部通过全局锁保证同时只有一个同步任务执行，
+     * 获取锁失败时返回 null 并写 SKIPPED 状态到 Redis。
      *
-     * @param message 知识同步消息（含 sourceType、force 参数）
+     * @param message 知识同步消息（含 taskId、sourceType、force 参数）
      */
     @RabbitListener(bindings = @QueueBinding(
             exchange = @Exchange(value = KnowledgeSyncMQConstants.EXCHANGE, type = ExchangeTypes.DIRECT),
@@ -51,20 +55,25 @@ public class KnowledgeSyncConsumer {
             key = KnowledgeSyncMQConstants.ROUTING_KEY
     ))
     public void handleKnowledgeSync(KnowledgeSyncMessage message) {
+        String taskId = message != null ? message.getTaskId() : null;
         String sourceType = message != null ? message.getSourceType() : null;
         boolean force = message != null && Boolean.TRUE.equals(message.getForce());
-        log.info("[MQ] 收到知识同步消息：sourceType = {}, force = {}", sourceType, force);
+        log.info("[MQ] 收到知识同步消息：taskId = {}, sourceType = {}, force = {}", taskId, sourceType, force);
         try {
-            SyncResultVO result = knowledgeLoaderService.syncKnowledge(sourceType, force);
-            log.info("[MQ] 知识同步完成：total = {}, updated = {}, deleted = {}, skipped = {}, failed = {}, duration = {}ms",
-                    result.getTotalDocuments(), result.getUpdatedDocuments(),
+            SyncResultVO result = knowledgeLoaderService.syncKnowledge(sourceType, force, taskId);
+            if (result == null) {
+                log.warn("[MQ] 知识同步被跳过（已有任务在执行）：taskId = {}", taskId);
+                return;
+            }
+            log.info("[MQ] 知识同步完成：taskId = {}, total = {}, updated = {}, deleted = {}, skipped = {}, failed = {}, duration = {}ms",
+                    taskId, result.getTotalDocuments(), result.getUpdatedDocuments(),
                     result.getDeletedDocuments(), result.getSkippedDocuments(),
                     result.getFailedDocuments(), result.getDuration());
             if (result.getFailedDocuments() > 0) {
                 log.warn("[MQ] 知识同步存在失败文件，建议查看 chat-service 日志定位失败原因");
             }
         } catch (Exception e) {
-            log.error("[MQ] 知识同步失败：sourceType = {}, force = {}", sourceType, force, e);
+            log.error("[MQ] 知识同步失败：taskId = {}, sourceType = {}, force = {}", taskId, sourceType, force, e);
             // 抛出异常让 MQ 重试
             throw new RuntimeException("知识同步失败", e);
         }

@@ -4,6 +4,8 @@ import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
 import com.zmbdp.chat.service.domain.entity.SysAiDocument;
 import org.springframework.ai.document.Document;
 
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
+
 import java.util.List;
 
 /**
@@ -74,12 +76,27 @@ public interface IKnowledgeLoaderService {
      * 执行知识同步
      * <p>
      * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步、按知识源类型过滤。
+     * 同步过程中向 Redis 写入进度数据（key = {@code sync:progress:{taskId}}），供前端轮询查询。
+     * <p>
+     * <b>单任务约束</b>：通过 Redisson 全局锁 {@code sync:global-lock} 保证同时只有一个同步任务执行，
+     * 获取锁失败时直接返回 null 并写 SKIPPED 状态到 Redis。
      *
      * @param sourceType 知识源类型过滤（doc/javadoc/config/code，传 null 或 "all" 表示全部）
      * @param force      是否强制全量同步（true=全量，false=增量）
-     * @return 同步结果统计
+     * @param taskId     同步任务ID（UUID，用于 Redis 进度追踪，传 null 时不写进度）
+     * @return 同步结果统计；因单任务约束被跳过时返回 null
      */
-    SyncResultVO syncKnowledge(String sourceType, boolean force);
+    SyncResultVO syncKnowledge(String sourceType, boolean force, String taskId);
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 从 Redis 读取指定 taskId 的同步进度数据。
+     *
+     * @param taskId 同步任务ID
+     * @return 进度数据；taskId 不存在或已过期返回 null
+     */
+    SyncProgressVO getSyncProgress(String taskId);
 
     /**
      * 上传单个文档到指定知识源
@@ -107,4 +124,22 @@ public interface IKnowledgeLoaderService {
      * @throws com.zmbdp.common.domain.exception.ServiceException 知识源不存在、文件已存在、或向量化失败
      */
     SysAiDocument uploadDocument(Long knowledgeSourceId, String fileName, String content);
+
+    /**
+     * 解析知识源路径（若是相对路径，拼接 {@code knowledge.base-path}）
+     * <p>
+     * <b>路径解析规则</b>：
+     * <ul>
+     *     <li>{@code path} 为空或 null：返回 {@code knowledge.base-path}</li>
+     *     <li>{@code path} 为绝对路径：原样返回</li>
+     *     <li>{@code path} 为相对路径：返回 {@code knowledge.base-path + File.separator + path}</li>
+     * </ul>
+     * <p>
+     * <b>使用场景</b>：知识源新增/更新校验、同步流程、文档上传，均通过本方法解析路径，
+     * 保证「入库的 path」与「实际读取的路径」一致，避免校验时用相对路径、同步时拼 base-path 的不一致问题。
+     *
+     * @param path 知识源配置中的 path 字段（可为相对路径或绝对路径）
+     * @return 解析后的绝对路径
+     */
+    String resolveSourcePath(String path);
 }

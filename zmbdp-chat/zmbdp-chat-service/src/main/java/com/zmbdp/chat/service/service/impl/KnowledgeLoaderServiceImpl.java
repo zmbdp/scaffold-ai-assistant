@@ -11,6 +11,7 @@ import com.zmbdp.chat.service.service.IModelService;
 import com.zmbdp.chat.service.service.IVectorStoreService;
 import cn.hutool.http.HtmlUtil;
 import com.zmbdp.common.core.utils.FileUtil;
+import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.domain.domain.ResultCode;
 import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.redis.service.RedissonLockService;
@@ -19,8 +20,11 @@ import org.redisson.api.RLock;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +45,7 @@ import java.util.stream.Collectors;
  * <p>
  * 负责知识加载、分块处理；执行知识同步（增量/全量）。
  * <p>
- * <b>核心流程</b>（{@link #syncKnowledge(String, boolean)} 12 步）：
+ * <b>核心流程</b>（{@link #syncKnowledge(String, boolean, String)} 12 步）：
  * <ol>
  *     <li>从 sys_ai_knowledge_source 表查询所有 enabled=1 的知识源</li>
  *     <li>遍历每个知识源，按知识源粒度加分布式锁（{@code knowledge:sync:{knowledgeSourceId}}）</li>
@@ -85,6 +89,49 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * 分布式锁租约时间（30 分钟，防止死锁）
      */
     private static final long LOCK_LEASE_SECONDS = 1800L;
+
+    /**
+     * 同步进度 Redis key 前缀（完整 key = sync:progress:{taskId}）
+     */
+    private static final String SYNC_PROGRESS_KEY_PREFIX = "sync:progress:";
+
+    /**
+     * 同步全局锁 key（单任务约束，同时只允许一个同步任务执行）
+     */
+    private static final String SYNC_GLOBAL_LOCK_KEY = "sync:global-lock";
+
+    /**
+     * 当前执行中的同步任务ID的 Redis key（value=taskId，TTL 24h）
+     * <p>
+     * 用于提交前去重：{@link KnowledgeServiceImpl#sync(SyncReqDTO)} 读取此 key 判断是否有 RUNNING 任务。
+     * 在获取全局锁后写入，确保无论从哪个入口触发（API/MQ/XXL-JOB）都更新此 key。
+     */
+    private static final String SYNC_CURRENT_TASK_KEY = "sync:current-task";
+
+    /**
+     * 同步进度 Redis TTL（24 小时，任务完成后保留供查询）
+     */
+    private static final long SYNC_PROGRESS_TTL_HOURS = 24L;
+
+    /**
+     * 任务状态：运行中
+     */
+    private static final String STATUS_RUNNING = "RUNNING";
+
+    /**
+     * 任务状态：已完成
+     */
+    private static final String STATUS_COMPLETE = "COMPLETE";
+
+    /**
+     * 任务状态：失败
+     */
+    private static final String STATUS_FAILED = "FAILED";
+
+    /**
+     * 任务状态：已跳过（单任务约束）
+     */
+    private static final String STATUS_SKIPPED = "SKIPPED";
 
     /**
      * 文档状态：活跃
@@ -215,6 +262,12 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     private RedissonLockService redissonLockService;
 
     /**
+     * Redis 操作模板（用于存储同步进度数据）
+     */
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
+    /**
      * 知识库根路径（从 Nacos {@code knowledge.base-path} 读取）
      */
     @Value("${knowledge.base-path:}")
@@ -228,12 +281,12 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * 依次加载 docs/*.md 文档、JavaDoc HTML 文档、Nacos 配置和部署配置文件，
      * 同步写入 MySQL 和 Milvus。
      * <p>
-     * <b>实现说明</b>：等同于 {@link #syncKnowledge(String, boolean)} 增量同步（sourceType=null 表示全部）。
+     * <b>实现说明</b>：等同于 {@link #syncKnowledge(String, boolean, String)} 增量同步（sourceType=null、taskId=null）。
      */
     @Override
     public void loadAllKnowledge() {
         log.info("开始加载所有知识源（增量同步）");
-        SyncResultVO result = syncKnowledge(null, false);
+        SyncResultVO result = syncKnowledge(null, false, null);
         log.info("加载所有知识源完成：{}", result);
     }
 
@@ -333,13 +386,18 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * 执行知识同步
      * <p>
      * 执行 12 步同步流程（含 Redisson 分布式锁），支持增量/全量同步、按知识源类型过滤。
+     * 同步过程中向 Redis 写入进度数据（key = {@code sync:progress:{taskId}}），供前端轮询查询。
+     * <p>
+     * <b>单任务约束</b>：通过 Redisson 全局锁 {@code sync:global-lock} 保证同时只有一个同步任务执行，
+     * 获取锁失败时直接返回 null 并写 SKIPPED 状态到 Redis。
      *
      * @param sourceType 知识源类型过滤（doc/javadoc/config/code，传 null 或 "all" 表示全部）
      * @param force      是否强制全量同步（true=全量跳过哈希检查，false=增量）
-     * @return 同步结果统计
+     * @param taskId     同步任务ID（UUID，用于 Redis 进度追踪，传 null 时不写进度）
+     * @return 同步结果统计；因单任务约束被跳过时返回 null
      */
     @Override
-    public SyncResultVO syncKnowledge(String sourceType, boolean force) {
+    public SyncResultVO syncKnowledge(String sourceType, boolean force, String taskId) {
         long startTime = System.currentTimeMillis();
         SyncResultVO result = new SyncResultVO();
         result.setTotalDocuments(0);
@@ -359,35 +417,143 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         if (sources == null || sources.isEmpty()) {
             log.warn("知识同步：未找到 enabled = 1 的知识源（sourceType = {}），跳过", sourceType);
             result.setDuration(System.currentTimeMillis() - startTime);
+            if (taskId != null) {
+                writeSyncCompleteProgress(taskId, result, startTime, null);
+            }
             return result;
         }
-        log.info("知识同步开始：sourceType = {}, force = {}, 知识源数量 = {}", sourceType, force, sources.size());
+        log.info("知识同步开始：sourceType = {}, force = {}, 知识源数量 = {}, taskId = {}",
+                sourceType, force, sources.size(), taskId);
 
-        for (SysAiKnowledgeSource source : sources) {
-            // 2. 按知识源粒度加分布式锁
-            String lockKey = LOCK_PREFIX + source.getId();
-            RLock lock = redissonLockService.acquire(lockKey);
-            if (lock == null) {
-                log.warn("知识源 {} 同步锁获取失败，已有同步任务在执行，跳过", source.getName());
-                continue;
+        // 2. 单任务约束：获取全局锁（同时只允许一个同步任务执行）
+        RLock globalLock = redissonLockService.acquire(SYNC_GLOBAL_LOCK_KEY);
+        if (globalLock == null) {
+            log.warn("同步全局锁获取失败，已有同步任务在执行，跳过本次：taskId = {}", taskId);
+            if (taskId != null) {
+                SyncProgressVO progress = buildProgress(taskId, startTime, sources.size(), 0);
+                progress.setStatus(STATUS_SKIPPED);
+                progress.setLastError("已有同步任务在执行");
+                progress.setDuration(System.currentTimeMillis() - startTime);
+                writeSyncProgress(taskId, progress);
             }
-            try {
-                syncSingleSource(source, force, result);
-            } catch (Exception e) {
-                log.error("知识源 {} 同步异常", source.getName(), e);
-                result.setFailedDocuments(result.getFailedDocuments() + 1);
-            } finally {
-                try {
-                    redissonLockService.releaseLock(lock);
-                } catch (Exception e) {
-                    log.warn("释放知识源 {} 同步锁异常：{}", source.getName(), e.getMessage());
-                }
+            return null;
+        }
+
+        // 3. 预扫描统计文件总数（listFiles 只遍历目录不读内容，很快）
+        int totalFiles = 0;
+        for (SysAiKnowledgeSource source : sources) {
+            String sourcePath = resolveSourcePath(source.getPath());
+            if (FileUtil.exist(sourcePath)) {
+                totalFiles += listFiles(sourcePath, source.getType()).size();
             }
         }
 
-        result.setDuration(System.currentTimeMillis() - startTime);
-        log.info("知识同步完成：{}", result);
-        return result;
+        // 4. 初始化进度数据并写入 Redis
+        SyncProgressVO progress = null;
+        if (taskId != null) {
+            progress = buildProgress(taskId, startTime, sources.size(), totalFiles);
+            writeSyncProgress(taskId, progress);
+            // 写入当前任务ID到 Redis，供提交端做单任务去重判断（best-effort）
+            // 不写入则提交端无法感知"已有任务在执行"，会重复投递 MQ（消费端仍有全局锁兜底）
+            try {
+                stringRedisTemplate.opsForValue().set(SYNC_CURRENT_TASK_KEY, taskId,
+                        SYNC_PROGRESS_TTL_HOURS, java.util.concurrent.TimeUnit.HOURS);
+            } catch (Exception e) {
+                log.warn("写入 sync:current-task 失败（不影响同步流程）：taskId = {}, error = {}", taskId, e.getMessage());
+            }
+        }
+
+        try {
+            int sourceIndex = 0;
+            for (SysAiKnowledgeSource source : sources) {
+                sourceIndex++;
+                // 写进度：知识源开始
+                if (progress != null) {
+                    progress.setCurrentSourceIndex(sourceIndex);
+                    progress.setCurrentSourceName(source.getName());
+                    writeSyncProgress(taskId, progress);
+                }
+                // 5. 按知识源粒度加分布式锁
+                String lockKey = LOCK_PREFIX + source.getId();
+                RLock lock = redissonLockService.acquire(lockKey);
+                if (lock == null) {
+                    log.warn("知识源 {} 同步锁获取失败，已有同步任务在执行，跳过", source.getName());
+                    continue;
+                }
+                try {
+                    syncSingleSource(source, force, result, taskId, progress);
+                } catch (Exception e) {
+                    log.error("知识源 {} 同步异常", source.getName(), e);
+                    result.setFailedDocuments(result.getFailedDocuments() + 1);
+                    if (progress != null) {
+                        progress.setFailedFiles(progress.getFailedFiles() + 1);
+                        progress.setProcessedFiles(progress.getProcessedFiles() + 1);
+                        progress.setLastError(e.getMessage());
+                        writeSyncProgress(taskId, progress);
+                    }
+                } finally {
+                    try {
+                        redissonLockService.releaseLock(lock);
+                    } catch (Exception e) {
+                        log.warn("释放知识源 {} 同步锁异常：{}", source.getName(), e.getMessage());
+                    }
+                }
+            }
+
+            result.setDuration(System.currentTimeMillis() - startTime);
+            log.info("知识同步完成：{}", result);
+            // 写进度：完成
+            if (progress != null) {
+                progress.setStatus(STATUS_COMPLETE);
+                progress.setDuration(result.getDuration());
+                progress.setFinalResult(result);
+                writeSyncProgress(taskId, progress);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("知识同步异常：taskId = {}", taskId, e);
+            result.setDuration(System.currentTimeMillis() - startTime);
+            // 写进度：失败
+            if (progress != null) {
+                progress.setStatus(STATUS_FAILED);
+                progress.setDuration(result.getDuration());
+                progress.setLastError(e.getMessage());
+                writeSyncProgress(taskId, progress);
+            }
+            throw e;
+        } finally {
+            try {
+                redissonLockService.releaseLock(globalLock);
+            } catch (Exception e) {
+                log.warn("释放同步全局锁异常：{}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 从 Redis 读取指定 taskId 的同步进度数据。
+     *
+     * @param taskId 同步任务ID
+     * @return 进度数据；taskId 不存在或已过期返回 null
+     */
+    @Override
+    public SyncProgressVO getSyncProgress(String taskId) {
+        if (!StringUtils.hasText(taskId)) {
+            return null;
+        }
+        try {
+            String key = SYNC_PROGRESS_KEY_PREFIX + taskId;
+            String json = stringRedisTemplate.opsForValue().get(key);
+            if (!StringUtils.hasText(json)) {
+                return null;
+            }
+            return JsonUtil.jsonToClass(json, SyncProgressVO.class);
+        } catch (Exception e) {
+            log.warn("读取同步进度失败：taskId = {}, error = {}", taskId, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -478,10 +644,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
      * 同步单个知识源
      *
      * @param source 知识源
-     * @param force  是否强制全量
-     * @param result 同步结果（累加）
+     * @param force    是否强制全量
+     * @param result   同步结果（累加）
+     * @param taskId   同步任务ID（可为 null，null 时不写进度）
+     * @param progress 进度对象（可为 null，与 taskId 同时为 null 时不写进度）
      */
-    private void syncSingleSource(SysAiKnowledgeSource source, boolean force, SyncResultVO result) {
+    private void syncSingleSource(SysAiKnowledgeSource source, boolean force, SyncResultVO result,
+                                   String taskId, SyncProgressVO progress) {
         String sourcePath = resolveSourcePath(source.getPath());
         if (!FileUtil.exist(sourcePath)) {
             log.warn("知识源 {} 路径不存在：{}", source.getName(), sourcePath);
@@ -531,6 +700,8 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
                     boolean hashValid = existing.getHash() != null && !existing.getHash().isEmpty();
                     if (hashMatch && hasChunks && hashValid) {
                         result.setSkippedDocuments(result.getSkippedDocuments() + 1);
+                        // 更新进度：跳过的文件
+                        updateFileProgress(taskId, progress, entry.getValue().getName(), true, true, null);
                     } else {
                         // 走更新流程重新 Embedding + 写入 Milvus
                         // 场景：hash 不匹配（文件改了）/ chunk_count=0（之前失败）/ hash 为空（之前失败回滚）
@@ -558,9 +729,11 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             try {
                 processAddedFile(source, file);
                 result.setUpdatedDocuments(result.getUpdatedDocuments() + 1);
+                updateFileProgress(taskId, progress, file.getName(), true, false, null);
             } catch (Exception e) {
                 log.error("处理新增文件失败：{}", file.getAbsolutePath(), e);
                 result.setFailedDocuments(result.getFailedDocuments() + 1);
+                updateFileProgress(taskId, progress, file.getName(), false, false, e.getMessage());
             }
         }
 
@@ -569,9 +742,11 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             try {
                 processUpdatedFile(source, file, existingDocMap.get(file.getAbsolutePath()));
                 result.setUpdatedDocuments(result.getUpdatedDocuments() + 1);
+                updateFileProgress(taskId, progress, file.getName(), true, false, null);
             } catch (Exception e) {
                 log.error("处理更新文件失败：{}", file.getAbsolutePath(), e);
                 result.setFailedDocuments(result.getFailedDocuments() + 1);
+                updateFileProgress(taskId, progress, file.getName(), false, false, e.getMessage());
             }
         }
 
@@ -580,9 +755,13 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
             try {
                 processDeletedDocument(doc);
                 result.setDeletedDocuments(result.getDeletedDocuments() + 1);
+                String docName = new File(doc.getPath()).getName();
+                updateFileProgress(taskId, progress, docName, true, false, null);
             } catch (Exception e) {
                 log.error("处理删除文件失败：documentId = {}", doc.getId(), e);
                 result.setFailedDocuments(result.getFailedDocuments() + 1);
+                String docName = new File(doc.getPath()).getName();
+                updateFileProgress(taskId, progress, docName, false, false, e.getMessage());
             }
         }
 
@@ -596,6 +775,97 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
         log.info("知识源 {} 同步完成：新增/更新 = {}, 删除 = {}, 跳过 = {}",
                 source.getName(), addedFiles.size() + updatedFiles.size(), deletedDocs.size(),
                 result.getSkippedDocuments());
+    }
+
+    /**
+     * 构建初始进度对象
+     *
+     * @param taskId       任务ID
+     * @param startTime    开始时间戳
+     * @param totalSources 知识源总数
+     * @param totalFiles   文件总数
+     * @return 初始化的进度对象
+     */
+    private SyncProgressVO buildProgress(String taskId, long startTime, int totalSources, int totalFiles) {
+        SyncProgressVO progress = new SyncProgressVO();
+        progress.setTaskId(taskId);
+        progress.setStatus(STATUS_RUNNING);
+        progress.setStartTime(startTime);
+        progress.setTotalSources(totalSources);
+        progress.setCurrentSourceIndex(0);
+        progress.setTotalFiles(totalFiles);
+        progress.setProcessedFiles(0);
+        progress.setSuccessFiles(0);
+        progress.setFailedFiles(0);
+        progress.setSkippedFiles(0);
+        return progress;
+    }
+
+    /**
+     * 写进度数据到 Redis（TTL 24 小时）
+     *
+     * @param taskId   任务ID
+     * @param progress 进度对象
+     */
+    private void writeSyncProgress(String taskId, SyncProgressVO progress) {
+        if (taskId == null || progress == null) {
+            return;
+        }
+        try {
+            String key = SYNC_PROGRESS_KEY_PREFIX + taskId;
+            String json = JsonUtil.classToJson(progress);
+            stringRedisTemplate.opsForValue().set(key, json, SYNC_PROGRESS_TTL_HOURS, java.util.concurrent.TimeUnit.HOURS);
+        } catch (Exception e) {
+            log.warn("写同步进度到 Redis 失败：taskId = {}, error = {}", taskId, e.getMessage());
+        }
+    }
+
+    /**
+     * 快速写完成进度（用于空知识源等场景，无需创建 progress 对象）
+     *
+     * @param taskId     任务ID
+     * @param result     同步结果
+     * @param startTime  开始时间
+     * @param lastError  错误信息（可为 null）
+     */
+    private void writeSyncCompleteProgress(String taskId, SyncResultVO result, long startTime, String lastError) {
+        if (taskId == null) {
+            return;
+        }
+        SyncProgressVO progress = buildProgress(taskId, startTime, 0, 0);
+        progress.setStatus(STATUS_COMPLETE);
+        progress.setDuration(System.currentTimeMillis() - startTime);
+        progress.setFinalResult(result);
+        progress.setLastError(lastError);
+        writeSyncProgress(taskId, progress);
+    }
+
+    /**
+     * 更新单个文件处理完的进度并写入 Redis
+     *
+     * @param taskId     任务ID
+     * @param progress   进度对象
+     * @param fileName   文件名
+     * @param success    是否成功
+     * @param skipped    是否跳过
+     * @param error      错误信息（可为 null）
+     */
+    private void updateFileProgress(String taskId, SyncProgressVO progress, String fileName,
+                                     boolean success, boolean skipped, String error) {
+        if (taskId == null || progress == null) {
+            return;
+        }
+        progress.setProcessedFiles(progress.getProcessedFiles() + 1);
+        progress.setLastFileName(fileName);
+        if (skipped) {
+            progress.setSkippedFiles(progress.getSkippedFiles() + 1);
+        } else if (success) {
+            progress.setSuccessFiles(progress.getSuccessFiles() + 1);
+        } else {
+            progress.setFailedFiles(progress.getFailedFiles() + 1);
+            progress.setLastError(error);
+        }
+        writeSyncProgress(taskId, progress);
     }
 
     /**
@@ -755,12 +1025,15 @@ public class KnowledgeLoaderServiceImpl implements IKnowledgeLoaderService {
     }
 
     /**
-     * 解析知识源路径（若是相对路径，拼接 knowledgeBasePath）
+     * 解析知识源路径（若是相对路径，拼接 {@code knowledge.base-path}）
+     * <p>
+     * 实现细节见 {@link IKnowledgeLoaderService#resolveSourcePath}。
      *
      * @param path 配置中的路径
      * @return 绝对路径
      */
-    private String resolveSourcePath(String path) {
+    @Override
+    public String resolveSourcePath(String path) {
         if (path == null || path.isEmpty()) {
             return knowledgeBasePath;
         }

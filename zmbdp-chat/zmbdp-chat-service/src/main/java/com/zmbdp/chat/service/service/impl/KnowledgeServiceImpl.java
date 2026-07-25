@@ -4,11 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zmbdp.chat.api.knowledge.constant.KnowledgeSyncMQConstants;
 import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
+import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSyncMessage;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
-import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncTaskVO;
 import com.zmbdp.chat.service.domain.entity.SysAiDocument;
 import com.zmbdp.chat.service.domain.entity.SysAiKnowledgeSource;
 import com.zmbdp.chat.service.mapper.SysAiDocumentMapper;
@@ -24,7 +27,9 @@ import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.snowflake.service.SnowflakeIdService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -39,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -48,6 +54,12 @@ import java.util.stream.Collectors;
  * <p>
  * <b>参数校验</b>：DTO 上使用 Jakarta Validation 注解（@NotBlank/@Min/@Max），
  * Controller 层通过 @Valid 触发校验，Service 层不重复手写 if 校验。
+ * <p>
+ * <b>知识同步（异步）</b>：{@link #sync(SyncReqDTO)} 仅生成 taskId + 投递 MQ 消息，
+ * 同步流程由 {@code KnowledgeSyncConsumer} 异步消费后委托
+ * {@link KnowledgeLoaderServiceImpl#syncKnowledge(String, boolean, String)} 执行；
+ * 进度数据写入 Redis（key = {@code sync:progress:{taskId}}），前端通过
+ * {@link #getSyncProgress(String)} 轮询查询。
  *
  * @author 稚名不带撇
  */
@@ -95,6 +107,30 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
             .collect(Collectors.toUnmodifiableSet());
 
     /**
+     * 当前执行中的同步任务ID的 Redis key（value=taskId，TTL 24h）
+     * <p>
+     * 用于单任务约束：提交同步前读取此 key，若其指向的任务状态为 RUNNING 则跳过本次提交。
+     * 由 {@link KnowledgeLoaderServiceImpl} 在获取全局锁后写入，确保无论从哪个入口触发
+     * （API/MQ/XXL-JOB）都更新此 key。
+     */
+    private static final String SYNC_CURRENT_TASK_KEY = "sync:current-task";
+
+    /**
+     * 当前任务 key 的 TTL（24 小时，与进度数据 TTL 一致，避免脏 key 长期残留）
+     */
+    private static final long SYNC_CURRENT_TASK_TTL_HOURS = 24L;
+
+    /**
+     * 提交状态：已提交（新任务）
+     */
+    private static final String STATUS_RUNNING = "RUNNING";
+
+    /**
+     * 提交状态：已跳过（单任务约束）
+     */
+    private static final String STATUS_SKIPPED = "SKIPPED";
+
+    /**
      * 知识源 mapper
      */
     @Autowired
@@ -123,6 +159,18 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
      */
     @Autowired
     private SnowflakeIdService snowflakeIdService;
+
+    /**
+     * RabbitMQ 消息发送模板（用于异步触发知识同步）
+     */
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    /**
+     * Redis 操作模板（用于读取当前执行中的同步任务ID，做单任务约束判断）
+     */
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /*=============================================    前端调用    =============================================*/
 
@@ -194,8 +242,9 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
      */
     @Override
     public KnowledgeSourceVO createSource(KnowledgeSourceReqDTO dto) {
-        // 1. 校验 path 是否存在（复用脚手架 FileUtil，不直接使用 Java NIO）
-        if (!FileUtil.exist(dto.getPath())) {
+        // 1. 校验 path 是否存在（相对路径需先与 knowledge.base-path 拼接，与同步流程保持一致）
+        String resolvedPath = knowledgeLoaderService.resolveSourcePath(dto.getPath());
+        if (!FileUtil.exist(resolvedPath)) {
             throw new ServiceException("知识源路径不存在：" + dto.getPath(), ResultCode.INVALID_PARA.getCode());
         }
         // 2. 校验 name 是否重复
@@ -234,9 +283,12 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
         if (existing == null) {
             throw new ServiceException(ResultCode.AI_KNOWLEDGE_SOURCE_NOT_FOUND);
         }
-        // 校验 path 是否存在
-        if (StringUtils.hasText(dto.getPath()) && !FileUtil.exist(dto.getPath())) {
-            throw new ServiceException("知识源路径不存在：" + dto.getPath(), ResultCode.INVALID_PARA.getCode());
+        // 校验 path 是否存在（相对路径需先与 knowledge.base-path 拼接，与同步流程保持一致）
+        if (StringUtils.hasText(dto.getPath())) {
+            String resolvedPath = knowledgeLoaderService.resolveSourcePath(dto.getPath());
+            if (!FileUtil.exist(resolvedPath)) {
+                throw new ServiceException("知识源路径不存在：" + dto.getPath(), ResultCode.INVALID_PARA.getCode());
+            }
         }
         // 校验 name 是否重复（排除自身）
         if (StringUtils.hasText(dto.getName()) && !dto.getName().equals(existing.getName())) {
@@ -385,19 +437,79 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     }
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
      * <p>
-     * 委托给 {@link IKnowledgeLoaderService#syncKnowledge} 执行同步。
+     * 执行流程：
+     * <ol>
+     *     <li>读取 Redis key {@code sync:current-task}，若存在则查询其指向任务的进度</li>
+     *     <li>若该任务状态为 RUNNING，说明已有同步任务在执行，返回 status=SKIPPED 及当前 taskId</li>
+     *     <li>否则生成新 taskId（UUID），封装 {@link KnowledgeSyncMessage} 投递到 MQ</li>
+     *     <li>返回 status=RUNNING 及新 taskId，前端用此 taskId 轮询进度</li>
+     * </ol>
+     * <p>
+     * <b>单任务约束说明</b>：本方法只做"提交前去重"（best-effort），真正的并发安全由
+     * {@link KnowledgeLoaderServiceImpl#syncKnowledge} 内部的 Redisson 全局锁保证。
+     * 极端场景下（提交后、消费前的短暂窗口）可能投递多条 MQ 消息，后到的会在消费端因获取全局锁失败而写 SKIPPED 进度。
      *
      * @param dto 同步请求（含 sourceType、force 参数）
-     * @return 同步结果统计
+     * @return 同步任务提交结果（taskId + status + message）
      */
     @Override
-    public SyncResultVO sync(SyncReqDTO dto) {
+    public SyncTaskVO sync(SyncReqDTO dto) {
         String sourceType = dto != null ? dto.getSourceType() : null;
         boolean force = dto != null && Boolean.TRUE.equals(dto.getForce());
-        log.info("触发知识同步：sourceType = {}, force = {}", sourceType, force);
-        return knowledgeLoaderService.syncKnowledge(sourceType, force);
+        log.info("触发知识同步（异步）：sourceType = {}, force = {}", sourceType, force);
+
+        // 1. 单任务约束：检查当前是否有 RUNNING 状态的同步任务
+        String currentTaskId = stringRedisTemplate.opsForValue().get(SYNC_CURRENT_TASK_KEY);
+        if (StringUtils.hasText(currentTaskId)) {
+            SyncProgressVO currentProgress = knowledgeLoaderService.getSyncProgress(currentTaskId);
+            if (currentProgress != null && STATUS_RUNNING.equals(currentProgress.getStatus())) {
+                log.info("已有同步任务在执行，本次提交被跳过：currentTaskId = {}", currentTaskId);
+                SyncTaskVO vo = new SyncTaskVO();
+                vo.setTaskId(currentTaskId);
+                vo.setStatus(STATUS_SKIPPED);
+                vo.setMessage("已有同步任务在执行，可使用返回的 taskId 查询进度");
+                return vo;
+            }
+        }
+
+        // 2. 生成新 taskId 并投递 MQ 消息
+        String taskId = UUID.randomUUID().toString().replace("-", "");
+        try {
+            KnowledgeSyncMessage message = new KnowledgeSyncMessage();
+            message.setTaskId(taskId);
+            message.setSourceType(sourceType);
+            message.setForce(force);
+            rabbitTemplate.convertAndSend(
+                    KnowledgeSyncMQConstants.EXCHANGE,
+                    KnowledgeSyncMQConstants.ROUTING_KEY,
+                    message);
+            log.info("知识同步 MQ 消息已投递：taskId = {}, sourceType = {}, force = {}", taskId, sourceType, force);
+        } catch (Exception e) {
+            log.error("发送知识同步 MQ 消息失败：sourceType = {}, force = {}", sourceType, force, e);
+            throw new ServiceException("触发知识同步失败：" + e.getMessage());
+        }
+
+        // 3. 返回提交结果
+        SyncTaskVO vo = new SyncTaskVO();
+        vo.setTaskId(taskId);
+        vo.setStatus(STATUS_RUNNING);
+        vo.setMessage("同步任务已提交，请使用 taskId 轮询进度");
+        return vo;
+    }
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 委托给 {@link IKnowledgeLoaderService#getSyncProgress} 从 Redis 读取进度数据。
+     *
+     * @param taskId 同步任务ID
+     * @return 进度数据；taskId 不存在或已过期返回 null
+     */
+    @Override
+    public SyncProgressVO getSyncProgress(String taskId) {
+        return knowledgeLoaderService.getSyncProgress(taskId);
     }
 
     /**
