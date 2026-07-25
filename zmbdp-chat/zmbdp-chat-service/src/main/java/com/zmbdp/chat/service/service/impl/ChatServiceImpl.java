@@ -260,20 +260,27 @@ public class ChatServiceImpl implements IChatService {
             requestSpec = requestSpec.toolCallbacks(wrappedCallbacks.toArray(new ToolCallback[0]));
         }
         // 用 .chatResponse() 替代 .content()：前者返回 Flux<ChatResponse> 含 metadata.usage，后者只返回字符串丢弃 Usage
+        // 注意：DashScope 流式响应中部分帧的 getResult() 可能为 null（如只携带 usage 的末尾帧、工具调用过程中的空帧），
+        //       必须先做 null 安全处理：doOnNext 里先提取 usage（防 metadata 为 null），再判 result 是否存在才累积 content；
+        //       后续 map 前用 filter 过滤掉 result 为 null 的帧，避免 .getOutput() 触发 NPE。
         return requestSpec.stream()
                 .chatResponse()
                 .doOnNext(chatResponse -> {
-                    // 累积响应内容
-                    String content = chatResponse.getResult().getOutput().getText();
-                    if (content != null) {
-                        fullResponse.append(content);
-                    }
-                    // 捕获 Usage（最后一帧才真正含 usage，前面的帧 usage 可能为 null，覆盖即可）
-                    Usage usage = chatResponse.getMetadata().getUsage();
+                    // 先捕获 Usage（某些帧可能 result 为 null 但 metadata 含 usage，必须在 filter 之前提取）
+                    Usage usage = chatResponse.getMetadata() != null ? chatResponse.getMetadata().getUsage() : null;
                     if (usage != null) {
                         usageRef.set(usage);
                     }
+                    // 累积响应内容（result 为 null 的帧跳过，不参与拼接）
+                    if (chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
+                        String content = chatResponse.getResult().getOutput().getText();
+                        if (content != null) {
+                            fullResponse.append(content);
+                        }
+                    }
                 })
+                .filter(chatResponse -> chatResponse.getResult() != null
+                        && chatResponse.getResult().getOutput() != null)
                 .map(chatResponse -> buildContentFrame(chatResponse.getResult().getOutput().getText()))
                 .doOnComplete(() -> {
                     // Step 6-8: 异步保存对话历史到 Redis + 记录到 MySQL
