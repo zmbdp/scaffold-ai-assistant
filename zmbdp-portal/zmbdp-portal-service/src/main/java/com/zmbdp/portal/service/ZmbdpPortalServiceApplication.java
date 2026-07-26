@@ -4,6 +4,7 @@ import com.zmbdp.admin.api.appuser.feign.AppUserApi;
 import com.zmbdp.chat.api.chat.feign.ChatApi;
 import com.zmbdp.chat.api.feedback.feign.FeedbackApi;
 import com.zmbdp.chat.api.history.feign.HistoryApi;
+import com.zmbdp.chat.api.statistics.feign.StatisticsApi;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -18,6 +19,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
  *     <li>{@link ChatApi}：RAG 检索（AI 对话业务编排使用）</li>
  *     <li>{@link HistoryApi}：对话历史查询/删除（C端历史接口使用）</li>
  *     <li>{@link FeedbackApi}：回答反馈提交/查询/撤销（C端反馈接口使用）</li>
+ *     <li>{@link StatisticsApi}：用户级用量统计（C端用量页使用）</li>
  * </ul>
  * <p>
  * <b>说明</b>：流式对话（SSE）不通过 Feign（Feign 不支持 Flux 返回），
@@ -31,7 +33,8 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
         AppUserApi.class,
         ChatApi.class,
         HistoryApi.class,
-        FeedbackApi.class
+        FeedbackApi.class,
+        StatisticsApi.class
 })
 public class ZmbdpPortalServiceApplication {
 

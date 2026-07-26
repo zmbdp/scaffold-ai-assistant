@@ -6,7 +6,8 @@ import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
-import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncTaskVO;
 import com.zmbdp.chat.api.knowledge.feign.KnowledgeApi;
 import com.zmbdp.chat.service.service.IKnowledgeService;
 import com.zmbdp.chat.service.service.IVectorStoreService;
@@ -115,16 +116,35 @@ public class KnowledgeController implements KnowledgeApi {
     }
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
+     * <p>
+     * 生成 taskId → 校验单任务约束 → 投递 MQ 消息，立即返回 {@link SyncTaskVO}。
+     * 同步流程在后台异步执行，前端使用返回的 taskId 调用
+     * {@link #getSyncProgress(String)} 轮询进度。
      *
      * @param dto 同步请求（含 sourceType、force 参数）
-     * @return 同步结果统计
+     * @return 同步任务提交结果（taskId + status + message）
      */
     @Override
-    public Result<SyncResultVO> sync(@Validated SyncReqDTO dto) {
-        log.info("触发知识同步：sourceType = {}, force = {}", dto.getSourceType(), dto.getForce());
-        SyncResultVO result = knowledgeService.sync(dto);
-        return Result.success(result);
+    public Result<SyncTaskVO> sync(@Validated SyncReqDTO dto) {
+        log.info("触发知识同步（异步）：sourceType = {}, force = {}", dto.getSourceType(), dto.getForce());
+        SyncTaskVO vo = knowledgeService.sync(dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 从 Redis 读取指定 taskId 的同步进度数据，供前端轮询展示进度条。
+     *
+     * @param taskId 同步任务ID（由 {@link #sync(SyncReqDTO)} 返回）
+     * @return 同步进度数据；taskId 不存在或已过期返回 null
+     */
+    @Override
+    public Result<SyncProgressVO> getSyncProgress(String taskId) {
+        log.info("查询同步进度：taskId = {}", taskId);
+        SyncProgressVO progress = knowledgeService.getSyncProgress(taskId);
+        return Result.success(progress);
     }
 
     /**

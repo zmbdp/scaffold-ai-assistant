@@ -16,7 +16,7 @@ spring:
     dashscope:
       api-key: # 你的通义千问API Key
       chat:
-        model: deepseek-v4-flash
+        model: qwen3.7-max
         options:
           temperature: 0.7
       embedding:
@@ -39,7 +39,7 @@ spring:
     # 注意：default-model 用 kebab-case，因为 "default" 是 Java 关键字不能直接作为字段名
     models:
       - type: TEXT_ONLY
-        name: qwen3.7-plus-2026-05-26
+        name: qwen3.7-max
         provider: dashscope
         enabled: true
         default-model: true

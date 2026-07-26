@@ -6,8 +6,11 @@ import com.zmbdp.chat.api.statistics.domain.vo.ConversationStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.FeedbackStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.HotQuestionVO;
 import com.zmbdp.chat.api.statistics.domain.vo.ToolStatisticsVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageItemVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageSummaryVO;
 import com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO;
 import com.zmbdp.common.domain.domain.Result;
+import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -101,4 +104,36 @@ public interface StatisticsApi {
     @GetMapping("/feedback")
     Result<FeedbackStatisticsVO> getFeedbackStatistics(@RequestParam(value = "startDate", required = false) Long startDate,
                                                        @RequestParam(value = "endDate", required = false) Long endDate);
+
+    /**
+     * 获取指定用户的用量汇总
+     * <p>
+     * 返回该用户的累计/今日 Token 消耗、对话数、活跃天数、首次使用时间、近 7 天 Token 趋势。
+     * 数据来源：sys_ai_operation_log 表按 userId 过滤聚合。
+     * <p>
+     * <b>鉴权</b>：调用方（portal-service）从 JWT 解析 userId 后传入，禁止前端直接传 userId。
+     *
+     * @param userId 用户ID（由调用方从 JWT 提取）
+     * @return 用户用量汇总 VO
+     */
+    @GetMapping("/usage/summary")
+    Result<UsageSummaryVO> getUserUsageSummary(@RequestParam("userId") Long userId);
+
+    /**
+     * 分页获取指定用户的 AI 调用明细
+     * <p>
+     * 按 create_time 倒序分页返回该用户的 AI 调用记录。
+     * 数据来源：sys_ai_operation_log 表按 userId 过滤。
+     * <p>
+     * <b>鉴权</b>：调用方（portal-service）从 JWT 解析 userId 后传入，禁止前端直接传 userId。
+     *
+     * @param userId   用户ID（由调用方从 JWT 提取）
+     * @param pageNo   页码，默认 1
+     * @param pageSize 每页数量，默认 10
+     * @return 用量明细分页结果
+     */
+    @GetMapping("/usage/list")
+    Result<BasePageVO<UsageItemVO>> getUserUsageList(@RequestParam("userId") Long userId,
+                                                     @RequestParam(value = "pageNo", defaultValue = "1") Integer pageNo,
+                                                     @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize);
 }

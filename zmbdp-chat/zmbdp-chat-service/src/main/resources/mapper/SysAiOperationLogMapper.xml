@@ -72,4 +72,89 @@
         ORDER BY count DESC
     </select>
 
+    <!-- ===================== 用户级统计（按 userId 过滤）===================== -->
+
+    <!-- 统计指定用户的累计 Token 消耗（仅 status=SUCCESS） -->
+    <select id="sumTotalTokensByUser" resultType="java.lang.Long">
+        SELECT IFNULL(SUM(total_tokens), 0)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+          AND status = 'SUCCESS'
+    </select>
+
+    <!-- 统计指定用户今日的 Token 消耗（仅 status=SUCCESS） -->
+    <select id="sumTodayTokensByUser" resultType="java.lang.Long">
+        SELECT IFNULL(SUM(total_tokens), 0)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+          AND status = 'SUCCESS'
+          AND create_date = #{todayDate}
+    </select>
+
+    <!-- 统计指定用户的对话总数（COUNT(DISTINCT conversation_id)，conversation_id 为 NULL 不计入） -->
+    <select id="countDistinctConversationsByUser" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT conversation_id)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+          AND conversation_id IS NOT NULL
+    </select>
+
+    <!-- 统计指定用户今日的对话数 -->
+    <select id="countTodayConversationsByUser" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT conversation_id)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+          AND conversation_id IS NOT NULL
+          AND create_date = #{todayDate}
+    </select>
+
+    <!-- 统计指定用户的活跃天数（COUNT(DISTINCT create_date)） -->
+    <select id="countDistinctActiveDaysByUser" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT create_date)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 查询指定用户的首次 AI 调用时间 -->
+    <select id="selectFirstUsedTimeByUser" resultType="java.time.LocalDateTime">
+        SELECT MIN(create_time)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 查询指定用户近 N 天的每日 Token 消耗趋势 -->
+    <select id="selectDailyTokenTrendByUser" resultType="java.util.Map">
+        SELECT
+            DATE_FORMAT(create_time, '%Y-%m-%d') AS date,
+            IFNULL(SUM(total_tokens), 0) AS count
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+          AND status = 'SUCCESS'
+          AND create_date &gt;= #{startDate}
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m-%d')
+    </select>
+
+    <!-- 统计指定用户的 AI 调用记录总数（用于分页） -->
+    <select id="countUserOperations" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 分页查询指定用户的 AI 调用明细 -->
+    <select id="selectUserOperations" resultType="com.zmbdp.chat.api.statistics.domain.vo.UsageItemVO">
+        SELECT
+            id AS operationId,
+            conversation_id AS conversationId,
+            LEFT(prompt, 50) AS question,
+            model,
+            total_tokens AS tokenUsage,
+            response_time AS duration,
+            UNIX_TIMESTAMP(create_time) * 1000 AS createTime
+        FROM sys_ai_operation_log
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
 </mapper>

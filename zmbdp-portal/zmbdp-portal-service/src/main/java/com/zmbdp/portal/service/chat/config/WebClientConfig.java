@@ -1,4 +1,4 @@
-package com.zmbdp.portal.service.config;
+package com.zmbdp.portal.service.chat.config;
 
 import com.zmbdp.common.core.utils.StringUtil;
 import lombok.extern.slf4j.Slf4j;

@@ -19,8 +19,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <!-- chat-service 专属 JVM 参数（覆盖根 pom 的 java.opts.default） -->
-        <!-- bge-large-zh-v1.5 本地 Embedding 模型加载需要较大内存，256m 会导致 ONNX Runtime bad allocation -->
-        <java.opts.default>-Xmx2g -javaagent:/opt/skywalking/agent/skywalking-agent.jar
+        <!-- bge-large-zh-v1.5 本地 Embedding 模型加载会一次性 readAllBytes 整个 model.onnx（约 400-500MB）到堆 -->
+        <!-- 实测 -Xmx2g 会 OOM（Java heap space），需至少 3g；预留余量用 4g -->
+        <java.opts.default>-Xmx4g -javaagent:/opt/skywalking/agent/skywalking-agent.jar
             -Dskywalking.agent.service_name=${project.artifactId}
             -Dskywalking.collector.backend_service=scaffold-ai-assistant-skywalking-oap:11800
         </java.opts.default>
@@ -261,11 +262,14 @@
                                     <JAVA_OPTS>${java.opts.default}</JAVA_OPTS>
                                 </env>
                                 <volumes>
-                                    <bind>${skywalking.path}</bind>
-                                    <!-- 挂载脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取 -->
-                                    <bind>${knowledge.path}</bind>
-                                    <!-- 挂载本地 Embedding 模型到容器 /models（只读），与脚手架源码分离 -->
-                                    <bind>${embedding.models.path}</bind>
+                                    <bind>
+                                        <!-- skywalking agent -->
+                                        <volume>${skywalking.path}</volume>
+                                        <!-- 挂载脚手架源码到容器 /knowledge（只读），供知识同步和 Agent 工具读取 -->
+                                        <volume>${knowledge.path}</volume>
+                                        <!-- 挂载本地 Embedding 模型到容器 /models（只读），与脚手架源码分离 -->
+                                        <volume>${embedding.models.path}</volume>
+                                    </bind>
                                 </volumes>
                             </run>
                         </image>

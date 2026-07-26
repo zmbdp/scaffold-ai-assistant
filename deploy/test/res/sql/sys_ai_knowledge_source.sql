@@ -23,9 +23,7 @@ use scaffold-ai-assistant_test;
 -- ======================================================================================
 
 -- 清理脚本内置的 ID 段（9001-9050），保证脚本可重复执行
-DELETE
-FROM sys_ai_knowledge_source
-WHERE id BETWEEN 9001 AND 9050;
+DELETE FROM sys_ai_knowledge_source WHERE id BETWEEN 9001 AND 9050;
 
 -- 插入知识源数据
 INSERT INTO sys_ai_knowledge_source (id, name, path, type, enabled, chunk_size, chunk_overlap, last_sync_date,
@@ -71,4 +69,4 @@ VALUES
 -- test 环境部署配置在 deploy/test/app 下（含 docker-compose、prometheus、redis、nacos 等配置）
 (9041, 'dev环境部署配置文件', 'deploy/dev/app', 'config', 1, 1000, 150, NULL, 20260719, 20260719),
 (9042, 'test环境部署配置文件', 'deploy/test/app', 'config', 1, 1000, 150, NULL, 20260719, 20260719),
-(9043, '部署配置文件', 'deploy/prd/vm1/app', 'config', 1, 1000, 150, NULL, 20260719, 20260719);
+(9043, 'prd部署配置文件', 'deploy/prd/vm1/app', 'config', 1, 1000, 150, NULL, 20260719, 20260719);

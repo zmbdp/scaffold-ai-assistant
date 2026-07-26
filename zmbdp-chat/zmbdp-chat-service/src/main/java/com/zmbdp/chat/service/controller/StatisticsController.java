@@ -7,6 +7,8 @@ import com.zmbdp.chat.api.statistics.domain.vo.ConversationStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.FeedbackStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.HotQuestionVO;
 import com.zmbdp.chat.api.statistics.domain.vo.ToolStatisticsVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageItemVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageSummaryVO;
 import com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO;
 import com.zmbdp.chat.api.statistics.feign.StatisticsApi;
 import com.zmbdp.chat.service.domain.entity.SysAiOperationLog;
@@ -14,6 +16,7 @@ import com.zmbdp.chat.service.service.IStatisticsService;
 import com.zmbdp.common.core.utils.BeanCopyUtil;
 import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.domain.domain.Result;
+import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
@@ -155,6 +158,45 @@ public class StatisticsController implements StatisticsApi {
         log.info("获取回答满意度统计：startDate = {}, endDate = {}", startDate, endDate);
         FeedbackStatisticsVO vo = statisticsService.getFeedbackStats(startDate, endDate);
         return Result.success(vo);
+    }
+
+    /**
+     * 获取指定用户的用量汇总（C 端用量页）
+     * <p>
+     * 供 portal-service 通过 Feign 调用，userId 由调用方从 JWT 解析后传入
+     * （前端禁止直接传 userId，防越权）。
+     * <p>
+     * 返回该用户的累计/今日 Token 消耗、对话数、活跃天数、首次使用时间、近 7 天 Token 趋势。
+     * 数据来源：sys_ai_operation_log 表按 userId 过滤聚合，缓存 TTL=60 秒。
+     *
+     * @param userId 用户ID（由 portal-service 从 JWT 提取）
+     * @return 用户用量汇总 VO
+     */
+    @Override
+    public Result<UsageSummaryVO> getUserUsageSummary(Long userId) {
+        log.info("获取用户用量汇总：userId = {}", userId);
+        UsageSummaryVO vo = statisticsService.getUserUsageSummary(userId);
+        return Result.success(vo);
+    }
+
+    /**
+     * 分页获取指定用户的 AI 调用明细（C 端用量页）
+     * <p>
+     * 供 portal-service 通过 Feign 调用，userId 由调用方从 JWT 解析后传入
+     * （前端禁止直接传 userId，防越权）。
+     * <p>
+     * 按 create_time 倒序分页返回该用户的 AI 调用记录，prompt 字段截前 50 字符作为提问摘要。
+     *
+     * @param userId   用户ID（由 portal-service 从 JWT 提取）
+     * @param pageNo   页码，默认 1
+     * @param pageSize 每页数量，默认 10
+     * @return 用量明细分页结果
+     */
+    @Override
+    public Result<BasePageVO<UsageItemVO>> getUserUsageList(Long userId, Integer pageNo, Integer pageSize) {
+        log.info("获取用户用量明细：userId = {}, pageNo = {}, pageSize = {}", userId, pageNo, pageSize);
+        BasePageVO<UsageItemVO> pageVO = statisticsService.getUserUsageList(userId, pageNo, pageSize);
+        return Result.success(pageVO);
     }
 
     /*=============================================    私有方法    =============================================*/

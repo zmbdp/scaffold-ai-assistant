@@ -199,7 +199,11 @@ public class ChatServiceImpl implements IChatService {
         String sessionId = StringUtils.hasText(request.getSessionId())
                 ? request.getSessionId()
                 : String.valueOf(snowflakeIdService.nextId());
-        log.info("开始流式文本对话：sessionId = {}, model = {}, userId = {}", sessionId, modelName, request.getUserId());
+        // 预生成对话记录ID：流式开始前生成，保证结束帧携带的 conversationId 与异步落库的 id 一致，
+        // 前端收到结束帧后即可调用点赞/点踩接口，无需等待对话记录落库
+        final Long conversationId = snowflakeIdService.nextId();
+        log.info("开始流式文本对话：sessionId = {}, conversationId = {}, model = {}, userId = {}",
+                sessionId, conversationId, modelName, request.getUserId());
 
         // Step 2: 获取对话历史
         List<Message> messages = new ArrayList<>();
@@ -289,7 +293,7 @@ public class ChatServiceImpl implements IChatService {
                     // 收集本次对话的工具调用记录（JSON 数组字符串，无调用时为 null）
                     String toolCallsJson = drainToolCallRecords(toolRecorders);
                     CompletableFuture.runAsync(() -> saveConversation(
-                            request, sessionId, fullResponse.toString(),
+                            request, conversationId, sessionId, fullResponse.toString(),
                             finalModelName, responseTime, STATUS_SUCCESS, null, usage, toolCallsJson));
                 })
                 .onErrorResume(e -> {
@@ -300,11 +304,11 @@ public class ChatServiceImpl implements IChatService {
                     // 异步保存失败记录（失败时无 Usage）
                     String toolCallsJson = drainToolCallRecords(toolRecorders);
                     CompletableFuture.runAsync(() -> saveConversation(
-                            request, sessionId, fullResponse.toString(),
+                            request, conversationId, sessionId, fullResponse.toString(),
                             finalModelName, responseTime, STATUS_FAILED, errorMsg, null, toolCallsJson));
                     return Flux.just(buildErrorFrame(ResultCode.AI_SERVICE_CONNECT_FAILED));
                 })
-                .concatWith(Flux.just(buildEndFrame(sessionId, finalModelName)));
+                .concatWith(Flux.just(buildEndFrame(sessionId, conversationId, finalModelName)));
     }
 
     /**
@@ -343,8 +347,11 @@ public class ChatServiceImpl implements IChatService {
         String sessionId = StringUtils.hasText(request.getSessionId())
                 ? request.getSessionId()
                 : String.valueOf(snowflakeIdService.nextId());
-        log.info("开始流式图文对话：sessionId = {}, model = {}, userId = {}, imageCount = {}",
-                sessionId, modelName, request.getUserId(),
+        // 预生成对话记录ID：流式开始前生成，保证结束帧携带的 conversationId 与异步落库的 id 一致，
+        // 前端收到结束帧后即可调用点赞/点踩接口，无需等待对话记录落库
+        final Long conversationId = snowflakeIdService.nextId();
+        log.info("开始流式图文对话：sessionId = {}, conversationId = {}, model = {}, userId = {}, imageCount = {}",
+                sessionId, conversationId, modelName, request.getUserId(),
                 request.getImages() != null ? request.getImages().size() : 0);
 
         // Step 2: 获取对话历史（过滤掉空 content 的 AssistantMessage，避免污染上下文）
@@ -446,7 +453,7 @@ public class ChatServiceImpl implements IChatService {
                     }
                     long[] usage = usageRef.get();
                     CompletableFuture.runAsync(() -> saveImageConversation(
-                            request, sessionId, fullResponse.toString(),
+                            request, conversationId, sessionId, fullResponse.toString(),
                             finalModelName, responseTime, status, errMsg, usage));
                 })
                 .onErrorResume(e -> {
@@ -456,11 +463,11 @@ public class ChatServiceImpl implements IChatService {
                             sessionId, finalModelName, e.getClass().getName(), errorMsg, e);
                     // 失败时无 Usage，传 null
                     CompletableFuture.runAsync(() -> saveImageConversation(
-                            request, sessionId, fullResponse.toString(),
+                            request, conversationId, sessionId, fullResponse.toString(),
                             finalModelName, responseTime, STATUS_FAILED, errorMsg, null));
                     return Flux.just(buildErrorFrame(ResultCode.AI_SERVICE_CONNECT_FAILED));
                 })
-                .concatWith(Flux.just(buildEndFrame(sessionId, finalModelName)));
+                .concatWith(Flux.just(buildEndFrame(sessionId, conversationId, finalModelName)));
     }
 
     /**
@@ -760,17 +767,23 @@ public class ChatServiceImpl implements IChatService {
     /**
      * 构建 SSE 结束帧
      * <p>
-     * 格式：{@code {"chunk": "", "done": true, "sessionId": "...", "model": "..."}}
+     * 格式：{@code {"chunk": "", "done": true, "sessionId": "...", "conversationId": 123, "model": "..."}}
+     * <p>
+     * <b>conversationId 字段</b>：本轮对话记录的主键（sys_ai_conversation.id），由雪花算法在流式开始前预生成，
+     * 异步保存对话记录时复用此 id。前端收到结束帧后可直接用此 id 调用点赞/点踩接口（{@code POST /feedback}），
+     * 无需等待对话记录落库。
      *
-     * @param sessionId 会话ID
-     * @param model     模型名称
+     * @param sessionId       会话ID
+     * @param conversationId  对话记录ID（预生成的雪花算法ID）
+     * @param model           模型名称
      * @return JSON 字符串
      */
-    private String buildEndFrame(String sessionId, String model) {
+    private String buildEndFrame(String sessionId, Long conversationId, String model) {
         Map<String, Object> frame = new HashMap<>(8);
         frame.put("chunk", "");
         frame.put("done", true);
         frame.put("sessionId", sessionId);
+        frame.put("conversationId", conversationId);
         frame.put("model", model);
         return JsonUtil.classToJson(frame);
     }
@@ -798,17 +811,18 @@ public class ChatServiceImpl implements IChatService {
      * Step 7: 记录对话到 MySQL（sys_ai_conversation 表）
      * Step 8: 记录 AI 调用链路日志到 sys_ai_operation_log 表（含 Token 消耗）
      *
-     * @param request      流式对话请求
-     * @param sessionId    会话ID
-     * @param answer       AI 完整回答
-     * @param modelName    模型名称
-     * @param responseTime 响应时间（毫秒）
-     * @param status       对话状态（SUCCESS/FAILED）
-     * @param errorMsg     失败原因（status=FAILED 时记录）
-     * @param usage        Spring AI Usage 对象（含 promptTokens/completionTokens/totalTokens，FAILED 时为 null）
-     * @param toolCallsJson 工具调用记录 JSON 数组字符串（无调用时为 null）
+     * @param request         流式对话请求
+     * @param conversationId  对话记录ID（流式开始前预生成，与结束帧携带的 conversationId 一致）
+     * @param sessionId       会话ID
+     * @param answer          AI 完整回答
+     * @param modelName       模型名称
+     * @param responseTime    响应时间（毫秒）
+     * @param status          对话状态（SUCCESS/FAILED）
+     * @param errorMsg        失败原因（status=FAILED 时记录）
+     * @param usage           Spring AI Usage 对象（含 promptTokens/completionTokens/totalTokens，FAILED 时为 null）
+     * @param toolCallsJson   工具调用记录 JSON 数组字符串（无调用时为 null）
      */
-    private void saveConversation(ChatStreamReqDTO request, String sessionId, String answer,
+    private void saveConversation(ChatStreamReqDTO request, Long conversationId, String sessionId, String answer,
                                   String modelName, long responseTime, String status, String errorMsg,
                                   Usage usage, String toolCallsJson) {
         try {
@@ -819,7 +833,7 @@ public class ChatServiceImpl implements IChatService {
             }
             // Step 7: 记录对话到 MySQL（SUCCESS/FAILED 都记录，便于排查失败原因）
             SysAiConversation conversation = buildConversationEntity(
-                    sessionId, request.getUserId(), request.getUserFrom(),
+                    conversationId, sessionId, request.getUserId(), request.getUserFrom(),
                     request.getMessage(), answer, modelName,
                     request.getTemperature(), responseTime, status, errorMsg, request.getSources());
             historyService.saveConversation(conversation);
@@ -840,16 +854,17 @@ public class ChatServiceImpl implements IChatService {
     /**
      * 异步保存图文对话记录
      *
-     * @param request      图文流式对话请求
-     * @param sessionId    会话ID
-     * @param answer       AI 完整回答
-     * @param modelName    模型名称
-     * @param responseTime 响应时间（毫秒）
-     * @param status       对话状态（SUCCESS/FAILED）
-     * @param errorMsg     失败原因（status=FAILED 时记录）
-     * @param usage        Token 数组（长度 3：promptTokens / completionTokens / totalTokens），FAILED 时为 null
+     * @param request         图文流式对话请求
+     * @param conversationId  对话记录ID（流式开始前预生成，与结束帧携带的 conversationId 一致）
+     * @param sessionId       会话ID
+     * @param answer          AI 完整回答
+     * @param modelName       模型名称
+     * @param responseTime    响应时间（毫秒）
+     * @param status          对话状态（SUCCESS/FAILED）
+     * @param errorMsg        失败原因（status=FAILED 时记录）
+     * @param usage           Token 数组（长度 3：promptTokens / completionTokens / totalTokens），FAILED 时为 null
      */
-    private void saveImageConversation(ChatWithImageStreamReqDTO request, String sessionId, String answer,
+    private void saveImageConversation(ChatWithImageStreamReqDTO request, Long conversationId, String sessionId, String answer,
                                        String modelName, long responseTime, String status, String errorMsg,
                                        long[] usage) {
         try {
@@ -869,7 +884,7 @@ public class ChatServiceImpl implements IChatService {
             }
             // 记录对话到 MySQL（SUCCESS/FAILED 都记录，便于排查失败原因）
             SysAiConversation conversation = buildConversationEntity(
-                    sessionId, request.getUserId(), request.getUserFrom(),
+                    conversationId, sessionId, request.getUserId(), request.getUserFrom(),
                     request.getMessage(), answer, modelName,
                     null, responseTime, finalStatus, finalErrorMsg, request.getSources());
             // 保存图片 URL 列表（JSON 数组格式）
@@ -992,25 +1007,26 @@ public class ChatServiceImpl implements IChatService {
     /**
      * 构建对话记录实体
      *
-     * @param sessionId    会话ID
-     * @param userId       用户ID
-     * @param userFrom     用户来源（sys/app）
-     * @param question     用户提问
-     * @param answer       AI 回答
-     * @param modelName    模型名称
-     * @param temperature  温度参数
-     * @param responseTime 响应时间（毫秒）
-     * @param status       对话状态
-     * @param errorMsg     失败原因
-     * @param sources      RAG 引用来源（文档标题列表，可为 null）
+     * @param conversationId 对话记录ID（由调用方在流式开始前预生成，保证结束帧的 conversationId 与落库 id 一致）
+     * @param sessionId      会话ID
+     * @param userId         用户ID
+     * @param userFrom       用户来源（sys/app）
+     * @param question       用户提问
+     * @param answer         AI 回答
+     * @param modelName      模型名称
+     * @param temperature    温度参数
+     * @param responseTime   响应时间（毫秒）
+     * @param status         对话状态
+     * @param errorMsg       失败原因
+     * @param sources        RAG 引用来源（文档标题列表，可为 null）
      * @return 对话记录实体
      */
-    private SysAiConversation buildConversationEntity(String sessionId, Long userId, String userFrom,
+    private SysAiConversation buildConversationEntity(Long conversationId, String sessionId, Long userId, String userFrom,
                                                        String question, String answer, String modelName,
                                                        Double temperature, long responseTime,
                                                        String status, String errorMsg, List<String> sources) {
         SysAiConversation conversation = new SysAiConversation();
-        conversation.setId(snowflakeIdService.nextId());
+        conversation.setId(conversationId);
         conversation.setSessionId(sessionId);
         conversation.setUserId(userId);
         conversation.setUserFrom(userFrom);
