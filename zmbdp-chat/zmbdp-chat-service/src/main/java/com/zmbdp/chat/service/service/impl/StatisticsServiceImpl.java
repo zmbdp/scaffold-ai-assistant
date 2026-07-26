@@ -31,8 +31,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -102,7 +104,6 @@ public class StatisticsServiceImpl implements IStatisticsService {
      * 统计缓存 key 前缀（与设计文档 7.2.19 节一致）
      */
     private static final String CACHE_KEY_CONVERSATION = "stats:conversation";
-    private static final String CACHE_KEY_QUESTIONS = "stats:questions";
     private static final String CACHE_KEY_USERS = "stats:users";
     private static final String CACHE_KEY_TOOLS = "stats:tools";
     private static final String CACHE_KEY_AI_METRICS = "stats:ai_metrics";
@@ -112,6 +113,31 @@ public class StatisticsServiceImpl implements IStatisticsService {
      * 用户级用量统计缓存 key 前缀，完整 key = "stats:user_usage:summary:{userId}"
      */
     private static final String CACHE_KEY_USER_USAGE_SUMMARY = "stats:user_usage:summary";
+
+    /**
+     * 热门问题排行榜 ZSET key
+     * <p>
+     * member = question 字符串（trim 后），score = 被问次数
+     * <p>
+     * 实时维护：每次 AI 对话成功后通过 {@code recordQuestionAsk} ZINCRBY 累加
+     */
+    private static final String HOT_QUESTIONS_ZSET_KEY = "stats:hot_questions:zset";
+
+    /**
+     * 热门问题元数据 Hash key（存 lastAskedTime）
+     * <p>
+     * field = question 字符串，value = 最后一次提问时间（毫秒时间戳）
+     * <p>
+     * ZSET 只能存 score（次数），lastAskedTime 需单独用 Hash 存储
+     */
+    private static final String HOT_QUESTIONS_META_KEY = "stats:hot_questions:meta";
+
+    /**
+     * 冷启动重建时从数据库取的 Top N 数量
+     * <p>
+     * 取 200 条足够覆盖常见热门问题，避免 ZSET 无限膨胀
+     */
+    private static final int HOT_QUESTIONS_REBUILD_LIMIT = 200;
 
     /**
      * 对话记录 mapper
@@ -177,6 +203,19 @@ public class StatisticsServiceImpl implements IStatisticsService {
 
     /**
      * 热门问题 TOP N
+     * <p>
+     * 数据来源：Redis ZSET 实时排行榜（key: {@value #HOT_QUESTIONS_ZSET_KEY}）。
+     * <p>
+     * <b>执行流程</b>：
+     * <ol>
+     *     <li>检查 ZSET 大小，为 0 时触发冷启动重建（从数据库批量加载 Top 200）</li>
+     *     <li>ZREVRANGE 取 Top N 个 question（按 score 降序）</li>
+     *     <li>逐个 ZSCORE 取 count，HGET 取 lastAskedTime</li>
+     *     <li>拼装 {@link HotQuestionVO} 列表返回</li>
+     * </ol>
+     * <p>
+     * <b>实时性</b>：每次 AI 对话成功后通过 {@link #recordQuestionAsk} 实时 ZINCRBY 累加，
+     * 排行榜实时更新（无 5 分钟缓存延迟）。
      *
      * @param limit 返回数量
      * @return 热门问题 VO 列表
@@ -187,20 +226,92 @@ public class StatisticsServiceImpl implements IStatisticsService {
         if (limit <= 0) {
             limit = 10;
         }
-        // 1. 尝试读取缓存
-        List<HotQuestionVO> cached = redisService.getCacheObject(CACHE_KEY_QUESTIONS,
-                new TypeReference<List<HotQuestionVO>>() {});
-        if (cached != null) {
-            return cached;
+        // 1. 冷启动检查：ZSET 为空时从数据库重建
+        Long zset_size = redisService.getZSetSize(HOT_QUESTIONS_ZSET_KEY);
+        if (zset_size == null || zset_size == 0) {
+            log.info("热门问题 ZSET 为空，触发冷启动重建");
+            rebuildHotQuestionsCache();
         }
-        // 2. 查询数据库
-        List<HotQuestionVO> list = sysAiConversationMapper.selectTopQuestions(limit);
-        if (list == null) {
-            list = new ArrayList<>();
+        // 2. ZREVRANGE 取 Top N 个 question（按 score 降序）
+        Set<String> questions = redisService.getZSetRangeDesc(HOT_QUESTIONS_ZSET_KEY, 0, limit - 1,
+                new TypeReference<LinkedHashSet<String>>() {});
+        if (questions == null || questions.isEmpty()) {
+            return new ArrayList<>();
         }
-        // 3. 写入缓存
-        redisService.setCacheObject(CACHE_KEY_QUESTIONS, list, STATS_CACHE_TTL, TimeUnit.SECONDS);
-        return list;
+        // 3. 逐个取 count（SCORE）和 lastAskedTime（HGET），拼装 VO
+        List<HotQuestionVO> result = new ArrayList<>(questions.size());
+        for (String question : questions) {
+            HotQuestionVO vo = new HotQuestionVO();
+            vo.setQuestion(question);
+            // ZSCORE 取被问次数
+            Double score = redisService.getZSetScore(HOT_QUESTIONS_ZSET_KEY, question);
+            vo.setCount(score != null ? score.intValue() : 0);
+            // HGET 取最后一次提问时间
+            Long lastAskedTime = redisService.getCacheMapValue(HOT_QUESTIONS_META_KEY, question,
+                    new TypeReference<Long>() {});
+            vo.setLastAskedTime(lastAskedTime);
+            result.add(vo);
+        }
+        return result;
+    }
+
+    /**
+     * 记录用户提问（实时维护热门问题排行榜）
+     * <p>
+     * 供 {@code ChatServiceImpl} 在 AI 对话成功后调用，通过 ZINCRBY 累加 question 的 score，
+     * 同时更新 Hash 中的 lastAskedTime。
+     * <p>
+     * <b>注意</b>：仅在对话 status=SUCCESS 且 question 非空时调用。
+     *
+     * @param question 用户提问内容（会 trim 标准化）
+     */
+    @Override
+    public void recordQuestionAsk(String question) {
+        if (!StringUtils.hasText(question)) {
+            return;
+        }
+        String normalizedQuestion = question.trim();
+        try {
+            // ZINCRBY 累加提问次数
+            redisService.incrementZSetScore(HOT_QUESTIONS_ZSET_KEY, normalizedQuestion, 1.0);
+            // 更新最后一次提问时间（毫秒时间戳）
+            redisService.setCacheMapValue(HOT_QUESTIONS_META_KEY, normalizedQuestion, System.currentTimeMillis());
+        } catch (Exception e) {
+            // 统计维护失败不影响主流程（saveConversation 已有 try-catch，这里再兜一层）
+            log.warn("维护热门问题排行榜失败：question = {}", normalizedQuestion, e);
+        }
+    }
+
+    /**
+     * 冷启动重建热门问题排行榜
+     * <p>
+     * 从数据库批量查询 Top {@value #HOT_QUESTIONS_REBUILD_LIMIT} 个热门问题，
+     * 写入 ZSET（score=count）和 Hash（value=lastAskedTime）。
+     * <p>
+     * <b>触发时机</b>：ZSET 为空时（首次启动 / Redis 清空 / 缓存丢失）。
+     * <p>
+     * <b>并发处理</b>：重建是幂等的，不加分布式锁，极小概率的并发重建无副作用（只是多查一次数据库）。
+     */
+    private void rebuildHotQuestionsCache() {
+        try {
+            // 从数据库取 Top 200
+            List<HotQuestionVO> topQuestions = sysAiConversationMapper.selectTopQuestions(HOT_QUESTIONS_REBUILD_LIMIT);
+            if (topQuestions == null || topQuestions.isEmpty()) {
+                log.info("数据库无热门问题数据，跳过重建");
+                return;
+            }
+            // 批量写入 ZSET 和 Hash
+            for (HotQuestionVO vo : topQuestions) {
+                if (vo.getQuestion() == null) {
+                    continue;
+                }
+                redisService.addMemberZSet(HOT_QUESTIONS_ZSET_KEY, vo.getQuestion(), vo.getCount().doubleValue());
+                redisService.setCacheMapValue(HOT_QUESTIONS_META_KEY, vo.getQuestion(), vo.getLastAskedTime());
+            }
+            log.info("热门问题排行榜重建完成：共 {} 条", topQuestions.size());
+        } catch (Exception e) {
+            log.error("热门问题排行榜重建失败", e);
+        }
     }
 
     /**
