@@ -40,6 +40,8 @@
         <!-- AI 框架版本（Spring AI Alibaba 1.0 GA，详见主文档1.2节版本选型说明） -->
         <spring-ai.version>1.0.0</spring-ai.version>
         <spring-ai-alibaba.version>1.0.0.2</spring-ai-alibaba.version>
+        <!-- DJL 版本：与 spring-ai-transformers 1.0.0 传递依赖的 DJL 版本对齐（0.32.0） -->
+        <djl.version>0.32.0</djl.version>
         <milvus-sdk.version>2.4.5</milvus-sdk.version>
         <javaparser.version>3.26.1</javaparser.version>
         <redisson.version>3.29.0</redisson.version>
@@ -75,6 +77,7 @@
         <java.opts.default>-Xmx256m -javaagent:/opt/skywalking/agent/skywalking-agent.jar
             -Dskywalking.agent.service_name=${project.artifactId}
             -Dskywalking.collector.backend_service=scaffold-ai-assistant-skywalking-oap:11800
+            -Dai.djl.default_engine=OnnxRuntime
         </java.opts.default>
         <nacos.addr>http://scaffold-ai-assistant-nacos:8848</nacos.addr>
         <docker.skip.push>false</docker.skip.push>
@@ -84,13 +87,14 @@
 <!--        <java.opts.default>-Xmx256m -javaagent:/opt/skywalking/agent/skywalking-agent.jar-->
 <!--            -Dskywalking.agent.service_name=${project.artifactId}-->
 <!--            -Dskywalking.collector.backend_service=scaffold-ai-assistant-skywalking-oap:11800-->
+<!--            -Dai.djl.default_engine=OnnxRuntime-->
 <!--        </java.opts.default>-->
 <!--        <nacos.addr>http://你的云服务器1内网ip/你的虚拟机1内网ip:8854,http://你的云服务器1内网ip/你的虚拟机1内网ip:8856,http://你的云服务器2内网ip/你的虚拟机2内网ip:8858</nacos.addr>-->
 <!--        <docker.skip.push>false</docker.skip.push>-->
 
 
         <!--docker部署配置-->
-        <dockerhost.addr>tcp://你的云服务器外网ip/你的虚拟机外网ip:2376</dockerhost.addr>
+        <dockerhost.addr>tcp://117.72.161.12:2376</dockerhost.addr>
         <docker.network.name>scaffold-ai-assistant_network_${runenv}</docker.network.name>
         <dockerregistry.url>crpi-otuh3k08p4yxr3tv.cn-shanghai.personal.cr.aliyuncs.com</dockerregistry.url>
         <dockerregistry.namespace>zmbdp-service</dockerregistry.namespace>
@@ -196,12 +200,19 @@
                 <version>${jakarta.bind.version}</version>
             </dependency>
 
-
             <!-- Hutool工具类 -->
             <dependency>
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+
+            <!-- DJL ONNX Runtime 引擎：替代 PyTorch 引擎，使用 onnxruntime jar 内置的 native library，
+                无需从外网下载，Docker 部署友好。版本与 spring-ai-transformers 依赖的 DJL 版本对齐（0.32.0） -->
+            <dependency>
+                <groupId>ai.djl.onnxruntime</groupId>
+                <artifactId>onnxruntime-engine</artifactId>
+                <version>${djl.version}</version>
             </dependency>
 
             <!-- JWT支持 -->

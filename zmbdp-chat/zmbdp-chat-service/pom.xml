@@ -94,6 +94,21 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-transformers</artifactId>
+            <exclusions>
+                <!-- 排除 PyTorch 引擎：Docker 部署时需从 publish.djl.ai 下载 PyTorch native library（.so），
+                     国内服务器网络访问受限会导致超时失败。项目使用 ONNX 模型，不需要 PyTorch 引擎。 -->
+                <exclusion>
+                    <groupId>ai.djl.pytorch</groupId>
+                    <artifactId>pytorch-engine</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- DJL ONNX Runtime 引擎：替代 PyTorch 引擎，使用 onnxruntime jar 内置的 native library，
+             无需从外网下载，Docker 部署友好。版本与 spring-ai-transformers 依赖的 DJL 版本对齐（0.32.0） -->
+        <dependency>
+            <groupId>ai.djl.onnxruntime</groupId>
+            <artifactId>onnxruntime-engine</artifactId>
         </dependency>
 
         <!-- ============ 向量数据库依赖 ============ -->
