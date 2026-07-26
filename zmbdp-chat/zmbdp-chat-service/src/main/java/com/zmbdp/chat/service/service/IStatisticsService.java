@@ -39,11 +39,27 @@ public interface IStatisticsService {
 
     /**
      * 热门问题 TOP N
+     * <p>
+     * 数据来源：Redis ZSET 实时排行榜（key: stats:hot_questions:zset）。
+     * 每次对话成功后通过 {@link #recordQuestionAsk} 实时 ZINCRBY 累加，排行榜实时更新。
+     * ZSET 为空时（冷启动）从数据库批量加载 Top 200 重建。
      *
      * @param limit 返回数量
      * @return 热门问题 VO 列表
      */
     List<HotQuestionVO> getTopQuestions(int limit);
+
+    /**
+     * 记录用户提问（实时维护热门问题排行榜）
+     * <p>
+     * 供 {@code ChatServiceImpl} 在 AI 对话成功后调用，通过 ZINCRBY 累加 question 的 score，
+     * 同时更新 Hash 中的 lastAskedTime。
+     * <p>
+     * <b>注意</b>：仅在对话 status=SUCCESS 且 question 非空时调用。
+     *
+     * @param question 用户提问内容（会 trim 标准化）
+     */
+    void recordQuestionAsk(String question);
 
     /**
      * 用户统计

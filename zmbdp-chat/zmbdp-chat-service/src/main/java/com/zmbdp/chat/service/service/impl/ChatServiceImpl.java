@@ -17,6 +17,7 @@ import com.zmbdp.chat.service.service.IChatMemoryService;
 import com.zmbdp.chat.service.service.IChatService;
 import com.zmbdp.chat.service.service.IHistoryService;
 import com.zmbdp.chat.service.service.IModelService;
+import com.zmbdp.chat.service.service.IStatisticsService;
 import com.zmbdp.chat.service.service.ToolRegistryService;
 import com.zmbdp.chat.service.tool.ToolCallRecorder;
 import com.zmbdp.common.core.utils.JsonUtil;
@@ -120,6 +121,14 @@ public class ChatServiceImpl implements IChatService {
      */
     @Autowired
     private IHistoryService historyService;
+
+    /**
+     * 统计服务（用于实时维护热门问题排行榜 ZSET）
+     * <p>
+     * 每次对话成功后调用 {@link IStatisticsService#recordQuestionAsk} ZINCRBY 累加提问次数。
+     */
+    @Autowired
+    private IStatisticsService statisticsService;
 
     /**
      * AI 调用链路日志 mapper（写入 sys_ai_operation_log 表）
@@ -839,6 +848,10 @@ public class ChatServiceImpl implements IChatService {
             historyService.saveConversation(conversation);
             log.info("保存对话记录成功：sessionId = {}, status = {}, responseTime = {}ms",
                     sessionId, status, responseTime);
+            // 维护热门问题排行榜（仅 SUCCESS 时，实时 ZINCRBY 累加提问次数）
+            if (STATUS_SUCCESS.equals(status)) {
+                statisticsService.recordQuestionAsk(request.getMessage());
+            }
             // Step 8: 记录 AI 调用链路日志（含 Token 消耗 + 工具调用链路）
             Integer promptTokens = usage != null ? Math.toIntExact(usage.getPromptTokens()) : null;
             Integer completionTokens = usage != null ? Math.toIntExact(usage.getCompletionTokens()) : null;
@@ -894,6 +907,10 @@ public class ChatServiceImpl implements IChatService {
             historyService.saveConversation(conversation);
             log.info("保存图文对话记录成功：sessionId = {}, status = {}, responseTime = {}ms",
                     sessionId, finalStatus, responseTime);
+            // 维护热门问题排行榜（仅 SUCCESS 时，实时 ZINCRBY 累加提问次数）
+            if (STATUS_SUCCESS.equals(finalStatus)) {
+                statisticsService.recordQuestionAsk(request.getMessage());
+            }
             // 记录 AI 调用链路日志（含 Token 消耗；图文对话不走工具调用，toolCalls 传 null）
             Integer promptTokens = usage != null ? Math.toIntExact(usage[0]) : null;
             Integer completionTokens = usage != null ? Math.toIntExact(usage[1]) : null;
