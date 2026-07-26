@@ -6,6 +6,8 @@ import com.zmbdp.chat.api.statistics.domain.vo.ConversationStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.FeedbackStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.HotQuestionVO;
 import com.zmbdp.chat.api.statistics.domain.vo.ToolStatisticsVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageItemVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageSummaryVO;
 import com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO;
 import com.zmbdp.chat.service.domain.entity.SysAiOperationLog;
 import com.zmbdp.chat.service.mapper.SysAiConversationMapper;
@@ -13,6 +15,7 @@ import com.zmbdp.chat.service.mapper.SysAiFeedbackMapper;
 import com.zmbdp.chat.service.mapper.SysAiOperationLogMapper;
 import com.zmbdp.chat.service.service.IStatisticsService;
 import com.zmbdp.common.core.utils.JsonUtil;
+import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import com.zmbdp.common.redis.service.RedisService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,8 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -50,6 +55,13 @@ public class StatisticsServiceImpl implements IStatisticsService {
      * 统计缓存 TTL（秒），与设计文档 7.2.19 节一致
      */
     private static final long STATS_CACHE_TTL = 300L;
+
+    /**
+     * 用户级用量统计缓存 TTL（秒）
+     * <p>
+     * 用户级数据更新频率高（每次 AI 调用都会变），TTL 设短一些保证数据时效性
+     */
+    private static final long USER_USAGE_CACHE_TTL = 60L;
 
     /**
      * 活跃用户统计窗口（近 7 天）
@@ -95,6 +107,11 @@ public class StatisticsServiceImpl implements IStatisticsService {
     private static final String CACHE_KEY_TOOLS = "stats:tools";
     private static final String CACHE_KEY_AI_METRICS = "stats:ai_metrics";
     private static final String CACHE_KEY_FEEDBACK = "stats:feedback";
+
+    /**
+     * 用户级用量统计缓存 key 前缀，完整 key = "stats:user_usage:summary:{userId}"
+     */
+    private static final String CACHE_KEY_USER_USAGE_SUMMARY = "stats:user_usage:summary";
 
     /**
      * 对话记录 mapper
@@ -348,6 +365,94 @@ public class StatisticsServiceImpl implements IStatisticsService {
         return sysAiOperationLogMapper.selectById(operationId);
     }
 
+    /*=============================================    用户级统计（C 端用量页）    =============================================*/
+
+    /**
+     * 获取指定用户的用量汇总
+     * <p>
+     * 执行流程：
+     * <ol>
+     *     <li>构建缓存 Key "stats:user_usage:summary:{userId}"</li>
+     *     <li>尝试从 Redis 读取缓存 → 命中则直接返回</li>
+     *     <li>未命中执行数据库聚合查询：
+     *         <ul>
+     *             <li>累计 Token（SUM(total_tokens) WHERE status=SUCCESS）</li>
+     *             <li>今日 Token（同上 + create_date=今日）</li>
+     *             <li>对话总数（COUNT(DISTINCT conversation_id)）</li>
+     *             <li>今日对话数（同上 + 当日过滤）</li>
+     *             <li>活跃天数（COUNT(DISTINCT create_date)）</li>
+     *             <li>首次使用时间（MIN(create_time) 转毫秒时间戳）</li>
+     *             <li>近 7 天 Token 趋势（GROUP BY DATE(create_time)，补全无数据日期）</li>
+     *         </ul>
+     *     </li>
+     *     <li>写入缓存（TTL=60 秒，用户级数据更新频率高）</li>
+     * </ol>
+     *
+     * @param userId 用户ID
+     * @return 用户用量汇总 VO
+     */
+    @Override
+    public UsageSummaryVO getUserUsageSummary(Long userId) {
+        // 1. 构建缓存 Key
+        String cacheKey = CACHE_KEY_USER_USAGE_SUMMARY + ":" + userId;
+        // 2. 尝试读取缓存
+        UsageSummaryVO cached = redisService.getCacheObject(cacheKey,
+                new TypeReference<UsageSummaryVO>() {});
+        if (cached != null) {
+            return cached;
+        }
+        // 3. 执行数据库聚合查询
+        UsageSummaryVO vo = new UsageSummaryVO();
+        Long todayDate = Long.parseLong(LocalDate.now().format(DATE_FORMATTER));
+        vo.setTotalTokens(sysAiOperationLogMapper.sumTotalTokensByUser(userId));
+        vo.setTodayTokens(sysAiOperationLogMapper.sumTodayTokensByUser(userId, todayDate));
+        vo.setTotalConversations(sysAiOperationLogMapper.countDistinctConversationsByUser(userId));
+        vo.setTodayConversations(sysAiOperationLogMapper.countTodayConversationsByUser(userId, todayDate));
+        vo.setActiveDays(sysAiOperationLogMapper.countDistinctActiveDaysByUser(userId));
+        // 首次使用时间（毫秒时间戳）
+        LocalDateTime firstUsedTime = sysAiOperationLogMapper.selectFirstUsedTimeByUser(userId);
+        vo.setFirstUsedTime(firstUsedTime != null
+                ? firstUsedTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                : null);
+        // 近 7 天 Token 趋势
+        Long trendStartDate = Long.parseLong(LocalDate.now().minusDays(TREND_DAYS - 1).format(DATE_FORMATTER));
+        List<Map<String, Object>> trendRows = sysAiOperationLogMapper.selectDailyTokenTrendByUser(userId, trendStartDate);
+        vo.setTrendData(buildUserTrendData(trendRows));
+        // 4. 写入缓存
+        redisService.setCacheObject(cacheKey, vo, USER_USAGE_CACHE_TTL, TimeUnit.SECONDS);
+        return vo;
+    }
+
+    /**
+     * 分页获取指定用户的 AI 调用明细
+     * <p>
+     * 按 create_time 倒序分页返回该用户的 AI 调用记录。
+     * 明细列表不缓存（实时性要求高，且分页参数多变）。
+     *
+     * @param userId   用户ID
+     * @param pageNo   页码（默认 1）
+     * @param pageSize 每页数量（默认 10）
+     * @return 用量明细分页结果
+     */
+    @Override
+    public BasePageVO<UsageItemVO> getUserUsageList(Long userId, Integer pageNo, Integer pageSize) {
+        // 参数兜底
+        int finalPageNo = pageNo != null && pageNo > 0 ? pageNo : 1;
+        int finalPageSize = pageSize != null && pageSize > 0 ? pageSize : 10;
+        int offset = (finalPageNo - 1) * finalPageSize;
+        // 查询总数
+        Long total = sysAiOperationLogMapper.countUserOperations(userId);
+        BasePageVO<UsageItemVO> pageVO = new BasePageVO<>();
+        pageVO.setTotals(total != null ? total.intValue() : 0);
+        pageVO.setTotalPages(pageVO.getTotals() > 0
+                ? (pageVO.getTotals() + finalPageSize - 1) / finalPageSize
+                : 0);
+        // 查询当前页数据
+        List<UsageItemVO> list = sysAiOperationLogMapper.selectUserOperations(userId, offset, finalPageSize);
+        pageVO.setList(list != null ? list : new ArrayList<>());
+        return pageVO;
+    }
+
     /*=============================================    私有方法    =============================================*/
 
     /**
@@ -378,6 +483,41 @@ public class StatisticsServiceImpl implements IStatisticsService {
             LocalDate date = LocalDate.now().minusDays(i);
             String dateStr = date.format(outputFormatter);
             ConversationStatisticsVO.TrendData trend = new ConversationStatisticsVO.TrendData();
+            trend.setDate(dateStr);
+            trend.setCount(dateCountMap.getOrDefault(dateStr, 0L));
+            result.add(trend);
+        }
+        return result;
+    }
+
+    /**
+     * 构建用户级 Token 趋势数据
+     * <p>
+     * 补全近 7 天中无 AI 调用的日期（count=0），确保趋势图连续。
+     *
+     * @param trendRows 数据库查询结果（date + count 字段）
+     * @return 趋势数据列表（共 7 天，按日期升序）
+     */
+    private List<UsageSummaryVO.TrendData> buildUserTrendData(List<Map<String, Object>> trendRows) {
+        // 数据库结果转为 Map：date → count
+        Map<String, Long> dateCountMap = new HashMap<>();
+        if (!CollectionUtils.isEmpty(trendRows)) {
+            for (Map<String, Object> row : trendRows) {
+                String date = (String) row.get("date");
+                Object countObj = row.get("count");
+                Long count = countObj instanceof Number ? ((Number) countObj).longValue() : 0L;
+                if (date != null) {
+                    dateCountMap.put(date, count);
+                }
+            }
+        }
+        // 补全近 7 天所有日期
+        List<UsageSummaryVO.TrendData> result = new ArrayList<>();
+        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        for (int i = TREND_DAYS - 1; i >= 0; i--) {
+            LocalDate date = LocalDate.now().minusDays(i);
+            String dateStr = date.format(outputFormatter);
+            UsageSummaryVO.TrendData trend = new UsageSummaryVO.TrendData();
             trend.setDate(dateStr);
             trend.setCount(dateCountMap.getOrDefault(dateStr, 0L));
             result.add(trend);
