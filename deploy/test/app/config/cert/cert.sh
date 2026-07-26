@@ -3,7 +3,7 @@
 #vi /lib/systemd/system/docker.service
 #--tlsverify --tlscacert=/etc/docker/ca.pem --tlscert=/etc/docker/server-cert.pem --tlskey=/etc/docker/server-key.pem
 
-SERVER="你的云服务器内网ip/你的虚拟机内网ip"
+SERVER="你的云服务器外网ip/你的虚拟机外网ip"
 PASSWORD="123456"
 COUNTRY="CN"
 STATE="ShanXi"

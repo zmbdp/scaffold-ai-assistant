@@ -15,7 +15,6 @@
 
     <packaging>pom</packaging>
     <modules>
-        <module>zmbdp-portal-api</module>
         <module>zmbdp-portal-service</module>
     </modules>
     <properties>

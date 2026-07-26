@@ -6,7 +6,8 @@ import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
-import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncTaskVO;
 import com.zmbdp.common.domain.domain.Result;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -85,15 +86,34 @@ public interface KnowledgeApi {
     Result<Void> deleteSource(@PathVariable("id") Long id);
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
      * <p>
-     * 扫描知识源路径 → 哈希比对增量更新 → 分块 → 向量化 → 写入 Milvus。
+     * 生成 taskId → 校验单任务约束 → 投递 MQ 消息，立即返回 {@link SyncTaskVO}（含 taskId）。
+     * 同步流程在 chat-service 后台异步执行，前端使用返回的 taskId 调用
+     * {@link #getSyncProgress(String)} 轮询进度。
+     * <p>
+     * <b>单任务约束</b>：若已有同步任务在执行（{@code sync:current-task} 指向的任务状态为 RUNNING），
+     * 本次提交被跳过，返回 status=SKIPPED 及当前正在执行的任务ID，前端应使用该 taskId 轮询进度。
      *
      * @param dto 同步请求（含 sourceType、force 参数）
-     * @return 同步结果统计
+     * @return 同步任务提交结果（taskId + status + message）
      */
     @PostMapping("/sync")
-    Result<SyncResultVO> sync(@RequestBody SyncReqDTO dto);
+    Result<SyncTaskVO> sync(@RequestBody SyncReqDTO dto);
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 根据 taskId 从 Redis 读取同步进度数据，供前端轮询展示进度条。
+     * <p>
+     * <b>数据来源</b>：chat-service 消费 MQ 消息后，在同步过程中实时写入 Redis
+     * （key = {@code sync:progress:{taskId}}，TTL 24h）。
+     *
+     * @param taskId 同步任务ID（由 admin-service 触发同步时生成）
+     * @return 同步进度数据；taskId 不存在时返回 null
+     */
+    @GetMapping("/sync/progress/{taskId}")
+    Result<SyncProgressVO> getSyncProgress(@PathVariable("taskId") String taskId);
 
     /**
      * 获取文档列表（分页）

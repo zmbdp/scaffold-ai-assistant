@@ -5,8 +5,11 @@ import com.zmbdp.chat.api.statistics.domain.vo.ConversationStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.FeedbackStatisticsVO;
 import com.zmbdp.chat.api.statistics.domain.vo.HotQuestionVO;
 import com.zmbdp.chat.api.statistics.domain.vo.ToolStatisticsVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageItemVO;
+import com.zmbdp.chat.api.statistics.domain.vo.UsageSummaryVO;
 import com.zmbdp.chat.api.statistics.domain.vo.UserStatisticsVO;
 import com.zmbdp.chat.service.domain.entity.SysAiOperationLog;
+import com.zmbdp.common.domain.domain.vo.BasePageVO;
 
 import java.util.List;
 
@@ -94,4 +97,29 @@ public interface IStatisticsService {
      * @return 操作日志实体
      */
     SysAiOperationLog getOperationDetail(Long operationId);
+
+    /*=============================================    用户级统计（C 端用量页）    =============================================*/
+
+    /**
+     * 获取指定用户的用量汇总
+     * <p>
+     * 返回该用户的累计/今日 Token 消耗、对话数、活跃天数、首次使用时间、近 7 天 Token 趋势。
+     * 数据来源：sys_ai_operation_log 表按 userId 过滤聚合。
+     *
+     * @param userId 用户ID（由调用方从 JWT 提取）
+     * @return 用户用量汇总 VO
+     */
+    UsageSummaryVO getUserUsageSummary(Long userId);
+
+    /**
+     * 分页获取指定用户的 AI 调用明细
+     * <p>
+     * 按 create_time 倒序分页返回该用户的 AI 调用记录。
+     *
+     * @param userId   用户ID（由调用方从 JWT 提取）
+     * @param pageNo   页码（默认 1）
+     * @param pageSize 每页数量（默认 10）
+     * @return 用量明细分页结果
+     */
+    BasePageVO<UsageItemVO> getUserUsageList(Long userId, Integer pageNo, Integer pageSize);
 }

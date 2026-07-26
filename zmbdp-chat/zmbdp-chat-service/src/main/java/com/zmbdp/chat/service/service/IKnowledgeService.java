@@ -4,7 +4,8 @@ import com.zmbdp.chat.api.knowledge.domain.dto.KnowledgeSourceReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeDocumentVO;
 import com.zmbdp.chat.api.knowledge.domain.vo.KnowledgeSourceVO;
-import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncProgressVO;
+import com.zmbdp.chat.api.knowledge.domain.vo.SyncTaskVO;
 import com.zmbdp.common.domain.domain.vo.BasePageVO;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -94,14 +95,28 @@ public interface IKnowledgeService {
     void deleteDocument(Long id);
 
     /**
-     * 触发知识同步
+     * 触发知识同步（异步）
      * <p>
-     * 委托给 {@link IKnowledgeLoaderService#syncKnowledge} 执行同步。
+     * 生成 taskId → 校验单任务约束（{@code sync:current-task}）→ 投递 MQ 消息，立即返回 {@link SyncTaskVO}。
+     * 同步流程由 {@code KnowledgeSyncConsumer} 异步消费执行，前端通过 {@link #getSyncProgress(String)} 轮询进度。
+     * <p>
+     * <b>单任务约束</b>：若已有同步任务在执行（当前 taskId 对应进度状态为 RUNNING），
+     * 本次提交被跳过，返回 status=SKIPPED 及当前正在执行的任务ID。
      *
      * @param dto 同步请求（含 sourceType、force 参数）
-     * @return 同步结果统计
+     * @return 同步任务提交结果（taskId + status + message）
      */
-    SyncResultVO sync(SyncReqDTO dto);
+    SyncTaskVO sync(SyncReqDTO dto);
+
+    /**
+     * 查询同步任务进度
+     * <p>
+     * 从 Redis 读取指定 taskId 的同步进度数据，委托给 {@link IKnowledgeLoaderService#getSyncProgress}。
+     *
+     * @param taskId 同步任务ID
+     * @return 进度数据；taskId 不存在或已过期返回 null
+     */
+    SyncProgressVO getSyncProgress(String taskId);
 
     /**
      * 上传文档到指定知识源

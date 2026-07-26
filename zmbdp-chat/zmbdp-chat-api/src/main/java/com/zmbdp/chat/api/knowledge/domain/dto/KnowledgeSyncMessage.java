@@ -8,8 +8,9 @@ import java.io.Serializable;
 /**
  * 知识同步 MQ 消息体
  * <p>
- * admin-service 发送 MQ 消息时使用，chat-service 消费端接收后解析 sourceType 和 force 参数，
- * 调用 {@code IKnowledgeLoaderService.syncKnowledge(sourceType, force)} 执行异步同步。
+ * admin-service 发送 MQ 消息时使用，chat-service 消费端接收后解析 taskId、sourceType 和 force 参数，
+ * 调用 {@code IKnowledgeLoaderService.syncKnowledge(sourceType, force, taskId)} 执行异步同步。
+ * taskId 用于同步过程中向 Redis 写入进度数据，供前端轮询查询。
  *
  * @author 稚名不带撇
  */
@@ -18,6 +19,11 @@ public class KnowledgeSyncMessage implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
+
+    /**
+     * 同步任务ID（UUID，由 admin-service 生成，用于 Redis 进度追踪）
+     */
+    private String taskId;
 
     /**
      * 知识源类型过滤（doc/javadoc/config/code，null 或 "all" 表示全部）
