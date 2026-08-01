@@ -70,26 +70,28 @@ public class ReadFileTool {
     )
     public String readFile(String filePath) {
         try {
-            // 1. 校验路径是否在白名单范围内
-            pathSecurityValidator.validatePath(filePath);
-            // 2. 检查文件是否存在
-            File file = FileUtil.file(filePath);
+            // 1. 解析路径（相对路径拼接 base-path，绝对路径原样返回）
+            String resolvedPath = pathSecurityValidator.resolvePath(filePath);
+            // 2. 校验路径是否在白名单范围内
+            pathSecurityValidator.validatePath(resolvedPath);
+            // 3. 检查文件是否存在
+            File file = FileUtil.file(resolvedPath);
             if (!FileUtil.exist(file)) {
-                return buildErrorJson("文件不存在: " + filePath);
+                return buildErrorJson("文件不存在: " + resolvedPath);
             }
-            // 3. 检查文件大小，过大则截断返回
+            // 4. 检查文件大小，过大则截断返回
             long fileSize = FileUtil.size(file);
             if (maxFileSize != null && fileSize > maxFileSize) {
                 // 截断读取前 maxFileSize 字节
-                String truncatedContent = readTruncatedContent(filePath, maxFileSize);
+                String truncatedContent = readTruncatedContent(resolvedPath, maxFileSize);
                 String suffix = String.format(FILE_TOO_LARGE_SUFFIX, maxFileSize);
                 log.info("文件过大已截断：filePath = {}, fileSize = {}, maxFileSize = {}",
-                        filePath, fileSize, maxFileSize);
+                        resolvedPath, fileSize, maxFileSize);
                 return truncatedContent + suffix;
             }
-            // 4. 读取完整文件内容
-            String content = FileUtil.readUtf8String(filePath);
-            log.info("读取文件成功：filePath = {}, size = {}", filePath, fileSize);
+            // 5. 读取完整文件内容
+            String content = FileUtil.readUtf8String(resolvedPath);
+            log.info("读取文件成功：filePath = {}, size = {}", resolvedPath, fileSize);
             return content;
         } catch (SecurityException e) {
             log.warn("路径校验失败：filePath = {}, error = {}", filePath, e.getMessage());
