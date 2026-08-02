@@ -31,7 +31,6 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
@@ -371,8 +370,7 @@ public class ChatServiceImpl implements IChatService {
                 List<Message> history = chatMemoryService.getHistory(sessionId);
                 if (history != null && !history.isEmpty()) {
                     for (Message msg : history) {
-                        if (msg instanceof org.springframework.ai.chat.messages.AssistantMessage
-                                && !StringUtils.hasText(msg.getText())) {
+                        if (msg instanceof AssistantMessage && !StringUtils.hasText(msg.getText())) {
                             log.warn("过滤掉空 content 的 AssistantMessage：sessionId = {}", sessionId);
                             continue;
                         }
@@ -534,7 +532,7 @@ public class ChatServiceImpl implements IChatService {
             switch (msg) {
                 case SystemMessage systemMessage -> role = "system";
                 case UserMessage userMessage -> role = "user";
-                case org.springframework.ai.chat.messages.AssistantMessage assistantMessage -> role = "assistant";
+                case AssistantMessage assistantMessage -> role = "assistant";
                 default -> {
                     // 跳过未知类型的消息
                     continue;
@@ -892,8 +890,7 @@ public class ChatServiceImpl implements IChatService {
             // 保存对话历史到 Redis（仅 SUCCESS 且 answer 非空时保存，避免污染下一轮上下文）
             if (STATUS_SUCCESS.equals(finalStatus) && StringUtils.hasText(answer)) {
                 chatMemoryService.addMessage(sessionId, new UserMessage(request.getMessage()));
-                chatMemoryService.addMessage(sessionId,
-                        new org.springframework.ai.chat.messages.AssistantMessage(answer));
+                chatMemoryService.addMessage(sessionId, new AssistantMessage(answer));
             }
             // 记录对话到 MySQL（SUCCESS/FAILED 都记录，便于排查失败原因）
             SysAiConversation conversation = buildConversationEntity(
