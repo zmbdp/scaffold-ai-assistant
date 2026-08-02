@@ -80,21 +80,23 @@ public class ListDirTool {
     )
     public String listDir(String dirPath) {
         try {
-            // 1. 校验路径是否在白名单范围内
-            pathSecurityValidator.validatePath(dirPath);
-            // 2. 检查目录是否存在
-            File dir = FileUtil.file(dirPath);
+            // 1. 解析路径（相对路径拼接 base-path，绝对路径原样返回）
+            String resolvedPath = pathSecurityValidator.resolvePath(dirPath);
+            // 2. 校验路径是否在白名单范围内
+            pathSecurityValidator.validatePath(resolvedPath);
+            // 3. 检查目录是否存在
+            File dir = FileUtil.file(resolvedPath);
             if (!FileUtil.exist(dir)) {
-                return buildErrorJson("目录不存在: " + dirPath);
+                return buildErrorJson("目录不存在: " + resolvedPath);
             }
             if (!dir.isDirectory()) {
-                return buildErrorJson("路径不是目录: " + dirPath);
+                return buildErrorJson("路径不是目录: " + resolvedPath);
             }
-            // 3. 生成 ASCII 目录树
+            // 4. 生成 ASCII 目录树
             StringBuilder sb = new StringBuilder();
             sb.append(DIR_PREFIX).append(dir.getName()).append("/\n");
             buildDirectoryTree(dir, 1, sb, INDENT_UNIT);
-            log.info("列出目录成功：dirPath = {}", dirPath);
+            log.info("列出目录成功：dirPath = {}", resolvedPath);
             return sb.toString();
         } catch (SecurityException e) {
             log.warn("路径校验失败：dirPath = {}, error = {}", dirPath, e.getMessage());
