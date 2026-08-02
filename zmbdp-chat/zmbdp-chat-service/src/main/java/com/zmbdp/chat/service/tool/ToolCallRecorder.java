@@ -2,6 +2,7 @@ package com.zmbdp.chat.service.tool;
 
 import com.zmbdp.common.core.utils.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
@@ -71,6 +72,7 @@ public class ToolCallRecorder implements ToolCallback {
         return new ToolCallRecorder(delegate);
     }
 
+    @NotNull
     @Override
     public ToolDefinition getToolDefinition() {
         return delegate.getToolDefinition();
@@ -84,8 +86,9 @@ public class ToolCallRecorder implements ToolCallback {
      * @param toolInput 工具输入参数（JSON 字符串）
      * @return 工具调用结果
      */
+    @NotNull
     @Override
-    public String call(String toolInput) {
+    public String call(@NotNull String toolInput) {
         return call(toolInput, null);
     }
 
@@ -98,8 +101,9 @@ public class ToolCallRecorder implements ToolCallback {
      * @param toolContext 工具上下文（可为 null）
      * @return 工具调用结果
      */
+    @NotNull
     @Override
-    public String call(String toolInput, ToolContext toolContext) {
+    public String call(@NotNull String toolInput, ToolContext toolContext) {
         String toolName = delegate.getToolDefinition().name();
         long startTime = System.currentTimeMillis();
         String result = null;

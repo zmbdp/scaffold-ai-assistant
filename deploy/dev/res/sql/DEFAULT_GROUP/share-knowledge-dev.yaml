@@ -23,7 +23,7 @@ spring:
       # 开发/测试环境推荐 true：切换 Embedding 模型导致维度变化时自动重建，避免插入/检索失败
       # 生产环境推荐 false：避免误删数据，由管理员手动处理
       auto-rebuild-on-dimension-mismatch: true
-x`
+
 # ==================== 知识库路径配置（供 Agent 工具使用） ====================
 knowledge:
   # 本地开发时填项目实际绝对路径（Windows 用正斜杠或双反斜杠）

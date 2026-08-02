@@ -73,18 +73,20 @@ public class SearchInFileTool {
     )
     public String searchInFile(String filePath, String keyword) {
         try {
-            // 1. 校验路径是否在白名单范围内
-            pathSecurityValidator.validatePath(filePath);
-            // 2. 校验关键字
+            // 1. 解析路径（相对路径拼接 base-path，绝对路径原样返回）
+            String resolvedPath = pathSecurityValidator.resolvePath(filePath);
+            // 2. 校验路径是否在白名单范围内
+            pathSecurityValidator.validatePath(resolvedPath);
+            // 3. 校验关键字
             if (!StringUtils.hasText(keyword)) {
                 return buildErrorJson("搜索关键字不能为空");
             }
-            // 3. 检查文件是否存在
-            File file = FileUtil.file(filePath);
+            // 4. 检查文件是否存在
+            File file = FileUtil.file(resolvedPath);
             if (!FileUtil.exist(file)) {
-                return buildErrorJson("文件不存在: " + filePath);
+                return buildErrorJson("文件不存在: " + resolvedPath);
             }
-            // 4. 按行读取文件内容
+            // 5. 按行读取文件内容
             List<String> lines = FileUtil.readUtf8Lines(file);
             if (CollectionUtils.isEmpty(lines)) {
                 Map<String, Object> emptyResult = new HashMap<>(2);
@@ -92,7 +94,7 @@ public class SearchInFileTool {
                 emptyResult.put("message", "文件内容为空");
                 return JsonUtil.classToJson(emptyResult);
             }
-            // 5. 查找匹配行并收集上下文
+            // 6. 查找匹配行并收集上下文
             List<Map<String, Object>> matches = new ArrayList<>();
             for (int i = 0; i < lines.size() && matches.size() < MAX_MATCHES; i++) {
                 String line = lines.get(i);
@@ -105,18 +107,18 @@ public class SearchInFileTool {
                     matches.add(match);
                 }
             }
-            // 6. 无匹配结果
+            // 7. 无匹配结果
             if (matches.isEmpty()) {
                 Map<String, Object> emptyResult = new HashMap<>(2);
                 emptyResult.put("matches", Collections.emptyList());
                 emptyResult.put("message", "未找到匹配内容");
                 return JsonUtil.classToJson(emptyResult);
             }
-            // 7. 构建返回结果
+            // 8. 构建返回结果
             Map<String, Object> result = new HashMap<>(2);
             result.put("matches", matches);
             result.put("total", matches.size());
-            log.info("文件内搜索完成：filePath = {}, keyword = {}, matches = {}", filePath, keyword, matches.size());
+            log.info("文件内搜索完成：filePath = {}, keyword = {}, matches = {}", resolvedPath, keyword, matches.size());
             return JsonUtil.classToJson(result);
         } catch (SecurityException e) {
             log.warn("路径校验失败：filePath = {}, error = {}", filePath, e.getMessage());

@@ -4,6 +4,7 @@ import com.zmbdp.chat.service.config.KnowledgeProperties;
 import com.zmbdp.common.core.utils.FileUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -37,6 +38,48 @@ public class PathSecurityValidator {
      */
     @Autowired
     private KnowledgeProperties knowledgeProperties;
+
+    /**
+     * 知识库根路径（从 Nacos {@code knowledge.base-path} 读取）
+     * <p>
+     * 用于将 LLM 传入的相对路径解析为绝对路径：相对路径会拼接此根路径，
+     * 绝对路径（以 / 开头）原样返回。
+     */
+    @Value("${knowledge.base-path:}")
+    private String knowledgeBasePath;
+
+    /**
+     * 解析路径为绝对路径
+     * <p>
+     * 将 LLM 传入的相对路径拼接 {@code knowledge.base-path} 根路径，解析为容器内绝对路径。
+     * 绝对路径（以 / 开头）原样返回。
+     * <p>
+     * <b>为什么需要此方法</b>：容器 WORKDIR 是 {@code /workspace} 而非 {@code /knowledge}，
+     * LLM 传入的相对路径（如 {@code zmbdp-common/zmbdp-common-cache}）若不拼接根路径，
+     * 会解析到 {@code /workspace/...} 导致文件不存在；且白名单校验（前缀匹配 {@code /knowledge}）也会失败。
+     *
+     * @param filePath 原始路径（可能是相对路径或绝对路径）
+     * @return 解析后的绝对路径
+     */
+    public String resolvePath(String filePath) {
+        if (!StringUtils.hasText(filePath)) {
+            return filePath;
+        }
+        String normalized = normalizePath(filePath);
+        // 绝对路径（以 / 开头）原样返回
+        if (normalized.startsWith("/")) {
+            return normalized;
+        }
+        // 相对路径拼接 base-path
+        String base = normalizePath(knowledgeBasePath);
+        if (!StringUtils.hasText(base)) {
+            return normalized;
+        }
+        if (base.endsWith("/")) {
+            return base + normalized;
+        }
+        return base + "/" + normalized;
+    }
 
     /**
      * 校验路径是否允许访问
