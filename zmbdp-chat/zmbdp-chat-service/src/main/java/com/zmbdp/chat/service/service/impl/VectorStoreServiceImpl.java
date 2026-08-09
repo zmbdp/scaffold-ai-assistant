@@ -4,6 +4,8 @@ import com.alibaba.cloud.ai.document.DocumentWithScore;
 import com.alibaba.cloud.ai.model.RerankModel;
 import com.alibaba.cloud.ai.model.RerankRequest;
 import com.alibaba.cloud.ai.model.RerankResponse;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.zmbdp.chat.api.chat.domain.vo.DocumentVO;
@@ -18,22 +20,15 @@ import com.zmbdp.common.core.utils.JsonUtil;
 import com.zmbdp.common.domain.exception.ServiceException;
 import com.zmbdp.common.snowflake.service.SnowflakeIdService;
 import io.milvus.client.MilvusServiceClient;
-import io.milvus.grpc.DataType;
-import io.milvus.grpc.DescribeCollectionResponse;
-import io.milvus.grpc.SearchResults;
+import io.milvus.grpc.*;
 import io.milvus.param.IndexType;
 import io.milvus.param.MetricType;
 import io.milvus.param.R;
-import io.milvus.param.collection.HasCollectionParam;
-import io.milvus.param.collection.LoadCollectionParam;
-import io.milvus.param.collection.CreateCollectionParam;
-import io.milvus.param.collection.DropCollectionParam;
-import io.milvus.param.collection.ReleaseCollectionParam;
-import io.milvus.param.collection.DescribeCollectionParam;
-import io.milvus.param.collection.FieldType;
+import io.milvus.param.RpcStatus;
+import io.milvus.param.collection.*;
+import io.milvus.param.dml.DeleteParam;
 import io.milvus.param.dml.InsertParam;
 import io.milvus.param.dml.SearchParam;
-import io.milvus.param.dml.DeleteParam;
 import io.milvus.param.index.CreateIndexParam;
 import io.milvus.response.DescCollResponseWrapper;
 import io.milvus.response.SearchResultsWrapper;
@@ -46,14 +41,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -100,41 +88,63 @@ import java.util.concurrent.TimeoutException;
 public class VectorStoreServiceImpl implements IVectorStoreService {
 
     /**
+     * VarChar 字段最大长度（content 字段）
+     */
+    private static final int CONTENT_MAX_LENGTH = 65535;
+    /**
+     * 检索候选集扩大因子（topK × 3 作为 Milvus 检索数量，为后续 Reranking 预留空间）
+     * <p>
+     * 设计文档 06-RAG流程设计.md 6.3 节描述为 topK×2，此处取 ×3 是为了给 Reranking 提供更大的候选池，
+     * 提升最终 topK 结果的相关性（业界普遍实践）。
+     */
+    private static final int CANDIDATE_EXPAND_FACTOR = 3;
+    /**
+     * Milvus 检索候选集上限（避免 topK 过大时单次检索数据量过大）
+     */
+    private static final int MAX_CANDIDATE_TOPK = 100;
+    /**
+     * 布隆过滤器中 document_id 的 key 前缀
+     */
+    private static final String BLOOM_DOCUMENT_ID_PREFIX = "document_id:";
+    /**
+     * GSON 实例（用于 metadata Map → JsonElement 转换）
+     * <p>
+     * Milvus SDK 2.4.5 的 JSON 字段要求值类型为 {@link JsonElement}，直接传 {@code Map} 会在
+     * {@code ParamUtils.checkFieldData} 的 {@code case JSON} 校验失败（{@code value instanceof JsonElement} 为 false），
+     * 而错误消息表又没有 JSON 类型条目，导致 {@code String.format(null, ...)} 触发 NPE。
+     * 因此必须先把 Map 转成 JsonObject 再传给 Milvus。
+     */
+    private static final Gson GSON = new Gson();
+    /**
      * Milvus 客户端
      */
     @Autowired
     private MilvusServiceClient milvusServiceClient;
-
     /**
      * Milvus 配置（从 Nacos {@code spring.ai.milvus.*} 读取，支持热刷新）
      */
     @Autowired
     private MilvusConfig milvusConfig;
-
     /**
      * 模型管理服务（用于获取 EmbeddingModel）
      */
     @Autowired
     private IModelService modelService;
-
     /**
      * 雪花 ID 生成服务（用于生成向量记录主键）
      */
     @Autowired
     private SnowflakeIdService snowflakeIdService;
-
     /**
      * 布隆过滤器服务（用于 document_id 存在性前置过滤）
      */
     @Autowired
     private BloomFilterService bloomFilterService;
-
     /**
      * 文档 mapper（用于启动时从 MySQL 预热布隆过滤器）
      */
     @Autowired
     private SysAiDocumentMapper sysAiDocumentMapper;
-
     /**
      * 重排序模型（由 DashScopeRerankAutoConfiguration 自动装配）
      * <p>
@@ -144,7 +154,6 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      */
     @Autowired(required = false)
     private RerankModel rerankModel;
-
     /**
      * Reranking 超时时间（毫秒，来自 Nacos {@code scaffold.rag.rerank-timeout}，默认 5000ms）
      * <p>
@@ -152,7 +161,6 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      */
     @Value("${scaffold.rag.rerank-timeout:5000}")
     private long rerankTimeoutMs;
-
     /**
      * 维度不一致时是否自动重建集合（从 Nacos {@code spring.ai.milvus.auto-rebuild-on-dimension-mismatch} 读取，默认 true）
      * <p>
@@ -167,39 +175,6 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      */
     @Value("${spring.ai.milvus.auto-rebuild-on-dimension-mismatch:true}")
     private boolean autoRebuildOnDimensionMismatch;
-
-    /**
-     * VarChar 字段最大长度（content 字段）
-     */
-    private static final int CONTENT_MAX_LENGTH = 65535;
-
-    /**
-     * 检索候选集扩大因子（topK × 3 作为 Milvus 检索数量，为后续 Reranking 预留空间）
-     * <p>
-     * 设计文档 06-RAG流程设计.md 6.3 节描述为 topK×2，此处取 ×3 是为了给 Reranking 提供更大的候选池，
-     * 提升最终 topK 结果的相关性（业界普遍实践）。
-     */
-    private static final int CANDIDATE_EXPAND_FACTOR = 3;
-
-    /**
-     * Milvus 检索候选集上限（避免 topK 过大时单次检索数据量过大）
-     */
-    private static final int MAX_CANDIDATE_TOPK = 100;
-
-    /**
-     * 布隆过滤器中 document_id 的 key 前缀
-     */
-    private static final String BLOOM_DOCUMENT_ID_PREFIX = "document_id:";
-
-    /**
-     * GSON 实例（用于 metadata Map → JsonElement 转换）
-     * <p>
-     * Milvus SDK 2.4.5 的 JSON 字段要求值类型为 {@link JsonElement}，直接传 {@code Map} 会在
-     * {@code ParamUtils.checkFieldData} 的 {@code case JSON} 校验失败（{@code value instanceof JsonElement} 为 false），
-     * 而错误消息表又没有 JSON 类型条目，导致 {@code String.format(null, ...)} 触发 NPE。
-     * 因此必须先把 Map 转成 JsonObject 再传给 Milvus。
-     */
-    private static final Gson GSON = new Gson();
 
     /*=============================================    生命周期    =============================================*/
 
@@ -242,8 +217,8 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      * （检索时 {@code mightContain} 返回 false 会跳过过滤，直接查询 Milvus）。
      */
     private void warmupBloomFilter() {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SysAiDocument> wrapper =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+        LambdaQueryWrapper<SysAiDocument> wrapper =
+                new LambdaQueryWrapper<>();
         wrapper.select(SysAiDocument::getId);
         List<Object> idList = sysAiDocumentMapper.selectObjs(wrapper);
         if (idList == null || idList.isEmpty()) {
@@ -343,10 +318,8 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      * @param collectionName 集合名
      */
     private void createCollectionWithIndex(String collectionName) {
-        // 1. 创建集合（含字段定义）
-        CreateCollectionParam createCollectionParam = CreateCollectionParam.newBuilder()
-                .withCollectionName(collectionName)
-                .withDescription("Scaffold AI Knowledge Base")
+        // 1. 构建 schema
+        CollectionSchemaParam schema = CollectionSchemaParam.newBuilder()
                 .addFieldType(FieldType.newBuilder()
                         .withName("id")
                         .withDataType(DataType.Int64)
@@ -376,7 +349,13 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                         .withDataType(DataType.JSON)
                         .build())
                 .build();
-        R<io.milvus.param.RpcStatus> createR = milvusServiceClient.createCollection(createCollectionParam);
+        // 2. 用 withSchema() 传 schema
+        CreateCollectionParam createCollectionParam = CreateCollectionParam.newBuilder()
+                .withCollectionName(collectionName)
+                .withDescription("Scaffold AI Knowledge Base")
+                .withSchema(schema)
+                .build();
+        R<RpcStatus> createR = milvusServiceClient.createCollection(createCollectionParam);
         if (createR == null || createR.getStatus() != R.Status.Success.getCode()) {
             log.error("创建 Milvus 集合失败：{}", createR);
             return;
@@ -394,7 +373,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                 .withMetricType(metricType)
                 .withExtraParam(indexExtraParam)
                 .build();
-        R<io.milvus.param.RpcStatus> indexR = milvusServiceClient.createIndex(createIndexParam);
+        R<RpcStatus> indexR = milvusServiceClient.createIndex(createIndexParam);
         if (indexR == null || indexR.getStatus() != R.Status.Success.getCode()) {
             log.error("创建 Milvus 向量索引失败：{}", indexR);
             return;
@@ -407,7 +386,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                 .withFieldName(AiCacheConstants.MILVUS_DOCUMENT_ID_FIELD)
                 .withIndexType(IndexType.STL_SORT)
                 .build();
-        R<io.milvus.param.RpcStatus> scalarIndexR = milvusServiceClient.createIndex(scalarIndexParam);
+        R<RpcStatus> scalarIndexR = milvusServiceClient.createIndex(scalarIndexParam);
         if (scalarIndexR == null || scalarIndexR.getStatus() != R.Status.Success.getCode()) {
             log.warn("创建 document_id 标量索引失败（不影响主流程）：{}", scalarIndexR);
         } else {
@@ -482,7 +461,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      */
     private void dropCollectionQuietly(String collectionName) {
         try {
-            R<io.milvus.param.RpcStatus> dropR = milvusServiceClient.dropCollection(
+            R<RpcStatus> dropR = milvusServiceClient.dropCollection(
                     DropCollectionParam.newBuilder()
                             .withCollectionName(collectionName)
                             .build());
@@ -508,7 +487,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
     private void cleanupAllDocuments() {
         try {
             int deleted = sysAiDocumentMapper.delete(
-                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SysAiDocument>().ge("id", 0L));
+                    new QueryWrapper<SysAiDocument>().ge("id", 0L));
             log.warn("sys_ai_document 表已清空，删除记录数：{}", deleted);
             // 清理布隆过滤器中所有 document_id 元素
             try {
@@ -529,7 +508,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
      */
     private void ensureCollectionLoaded(String collectionName) {
         try {
-            R<io.milvus.param.RpcStatus> loadR = milvusServiceClient.loadCollection(
+            R<RpcStatus> loadR = milvusServiceClient.loadCollection(
                     LoadCollectionParam.newBuilder()
                             .withCollectionName(collectionName)
                             .build());
@@ -655,7 +634,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                             new InsertParam.Field(AiCacheConstants.MILVUS_METADATA_FIELD, metadataList)
                     ))
                     .build();
-            R<io.milvus.grpc.MutationResult> insertR = milvusServiceClient.insert(insertParam);
+            R<MutationResult> insertR = milvusServiceClient.insert(insertParam);
             if (insertR == null || insertR.getStatus() != R.Status.Success.getCode()) {
                 log.error("写入 Milvus 失败：{}", insertR);
                 return;
@@ -986,7 +965,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
         }
         StringBuilder expr = new StringBuilder();
         for (Map.Entry<String, String> entry : filters.entrySet()) {
-            if (expr.length() > 0) {
+            if (!expr.isEmpty()) {
                 expr.append(" && ");
             }
             expr.append("metadata[\"").append(entry.getKey()).append("\"] == \"").append(entry.getValue()).append("\"");
@@ -1012,7 +991,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                     .withCollectionName(collectionName)
                     .withExpr(expr)
                     .build();
-            R<io.milvus.grpc.MutationResult> deleteR = milvusServiceClient.delete(deleteParam);
+            R<MutationResult> deleteR = milvusServiceClient.delete(deleteParam);
             if (deleteR == null || deleteR.getStatus() != R.Status.Success.getCode()) {
                 log.error("按条件删除向量数据失败：expr = {}, {}", expr, deleteR);
                 return;
@@ -1051,7 +1030,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
                     .withCollectionName(collectionName)
                     .withExpr(expr)
                     .build();
-            R<io.milvus.grpc.MutationResult> deleteR = milvusServiceClient.delete(deleteParam);
+            R<MutationResult> deleteR = milvusServiceClient.delete(deleteParam);
             if (deleteR == null || deleteR.getStatus() != R.Status.Success.getCode()) {
                 log.error("按 document_id 删除向量数据失败：documentId = {}, {}", documentId, deleteR);
                 return;
@@ -1071,7 +1050,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
     public long getDocumentCount() {
         String collectionName = milvusConfig.getCollectionName();
         try {
-            R<io.milvus.grpc.GetCollectionStatisticsResponse> statsR = milvusServiceClient.getCollectionStatistics(
+            R<GetCollectionStatisticsResponse> statsR = milvusServiceClient.getCollectionStatistics(
                     io.milvus.param.collection.GetCollectionStatisticsParam.newBuilder()
                             .withCollectionName(collectionName)
                             .build());
@@ -1081,7 +1060,7 @@ public class VectorStoreServiceImpl implements IVectorStoreService {
             }
             // statsList 中 key="row_count" 的项是分块总数
             long count = 0L;
-            for (io.milvus.grpc.KeyValuePair kv : statsR.getData().getStatsList()) {
+            for (KeyValuePair kv : statsR.getData().getStatsList()) {
                 if ("row_count".equals(kv.getKey())) {
                     try {
                         count = Long.parseLong(kv.getValue());
