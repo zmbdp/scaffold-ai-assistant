@@ -1,6 +1,7 @@
 package com.zmbdp.chat.service.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zmbdp.chat.api.knowledge.domain.dto.SyncReqDTO;
 import com.zmbdp.chat.api.knowledge.domain.vo.SyncResultVO;
 import com.zmbdp.chat.service.domain.entity.SysAiDocument;
 import com.zmbdp.chat.service.domain.entity.SysAiKnowledgeSource;
